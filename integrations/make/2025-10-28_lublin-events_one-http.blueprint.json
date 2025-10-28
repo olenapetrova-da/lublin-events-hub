@@ -1,0 +1,235 @@
+{
+    "name": "Lublin Events (one HTTP)",
+    "flow": [
+        {
+            "id": 23,
+            "module": "gateway:CustomWebHook",
+            "version": 1,
+            "parameters": {
+                "hook": 3372755,
+                "maxResults": 1
+            },
+            "mapper": {},
+            "metadata": {
+                "designer": {
+                    "x": -1468,
+                    "y": -962
+                },
+                "restore": {
+                    "parameters": {
+                        "hook": {
+                            "data": {
+                                "editable": "true"
+                            },
+                            "label": "Manual Trigger"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "hook",
+                        "type": "hook:gateway-webhook",
+                        "label": "Webhook",
+                        "required": true
+                    },
+                    {
+                        "name": "maxResults",
+                        "type": "number",
+                        "label": "Maximum number of results"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 25,
+            "module": "util:SetVariables",
+            "version": 1,
+            "parameters": {},
+            "mapper": {
+                "scope": "roundtrip",
+                "variables": [
+                    {
+                        "name": "iso_date",
+                        "value": "{{ifempty(23.date; formatDate(now; \"YYYY-MM-DD\"))}}"
+                    },
+                    {
+                        "name": "period",
+                        "value": "{{lower(ifempty(23.period; \"day\"))}}"
+                    },
+                    {
+                        "name": "days_count",
+                        "value": "{{ifempty(23.days; \"\")}}"
+                    },
+                    {
+                        "name": "max_events",
+                        "value": "{{ifempty(23.limit; 100)}}"
+                    },
+                    {
+                        "name": "start_date",
+                        "value": "{{ifempty(23.date; formatDate(now; \"YYYY-MM-DD\"))}}"
+                    },
+                    {
+                        "name": "zoom_base_url",
+                        "value": "https://zoom.lublin.pl/wydarzenia"
+                    },
+                    {
+                        "name": "zoom_worker",
+                        "value": "https://zoom-lublin-adapter.elenipster.workers.dev"
+                    },
+                    {
+                        "name": "lublin_base_url",
+                        "value": "https://lublin.eu/kultura/wydarzenia"
+                    },
+                    {
+                        "name": "lublin_worker",
+                        "value": "https://official-lublin-adapter.elenipster.workers.dev"
+                    }
+                ]
+            },
+            "metadata": {
+                "designer": {
+                    "x": -1088,
+                    "y": -958
+                },
+                "restore": {
+                    "expect": {
+                        "scope": {
+                            "label": "One cycle"
+                        },
+                        "variables": {
+                            "items": [
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null
+                            ]
+                        }
+                    }
+                },
+                "expect": [
+                    {
+                        "name": "variables",
+                        "spec": [
+                            {
+                                "name": "name",
+                                "type": "text",
+                                "label": "Variable name",
+                                "required": true
+                            },
+                            {
+                                "name": "value",
+                                "type": "any",
+                                "label": "Variable value"
+                            }
+                        ],
+                        "type": "array",
+                        "label": "Variables"
+                    },
+                    {
+                        "name": "scope",
+                        "type": "select",
+                        "label": "Variable lifetime",
+                        "required": true,
+                        "validate": {
+                            "enum": [
+                                "roundtrip",
+                                "execution"
+                            ]
+                        }
+                    }
+                ],
+                "interface": [
+                    {
+                        "name": "iso_date",
+                        "type": "any",
+                        "label": "iso_date"
+                    },
+                    {
+                        "name": "period",
+                        "type": "any",
+                        "label": "period"
+                    },
+                    {
+                        "name": "days_count",
+                        "type": "any",
+                        "label": "days_count"
+                    },
+                    {
+                        "name": "max_events",
+                        "type": "any",
+                        "label": "max_events"
+                    },
+                    {
+                        "name": "start_date",
+                        "type": "any",
+                        "label": "start_date"
+                    },
+                    {
+                        "name": "zoom_base_url",
+                        "type": "any",
+                        "label": "zoom_base_url"
+                    },
+                    {
+                        "name": "zoom_worker",
+                        "type": "any",
+                        "label": "zoom_worker"
+                    },
+                    {
+                        "name": "lublin_base_url",
+                        "type": "any",
+                        "label": "lublin_base_url"
+                    },
+                    {
+                        "name": "lublin_worker",
+                        "type": "any",
+                        "label": "lublin_worker"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 30,
+            "module": "http:ActionSendData",
+            "version": 3,
+            "metadata": {
+                "designer": {
+                    "x": -631,
+                    "y": -968,
+                    "messages": [
+                        {
+                            "category": "setup",
+                            "severity": "error",
+                            "message": "Value must not be empty."
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "metadata": {
+        "instant": true,
+        "version": 1,
+        "scenario": {
+            "roundtrips": 1,
+            "maxErrors": 3,
+            "autoCommit": true,
+            "autoCommitTriggerLast": true,
+            "sequential": false,
+            "slots": null,
+            "confidential": false,
+            "dataloss": false,
+            "dlq": false,
+            "freshVariables": false
+        },
+        "designer": {
+            "orphans": []
+        },
+        "zone": "eu2.make.com",
+        "notes": []
+    }
+}
