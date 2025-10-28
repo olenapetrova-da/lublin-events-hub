@@ -1,0 +1,16 @@
+# Node / Cloudflare Workers
+node_modules/
+.wrangler/
+dist/
+.dev.vars
+.env
+.env.*
+# Apps Script / clasp (optional)
+.clasp.json
+.clasprc.json
+# OS/editor
+.DS_Store
+Thumbs.db
+*.log
+# Archives & exports
+/integrations/make/*.zip

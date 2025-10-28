@@ -1,0 +1,6 @@
+Context
+Repo: <repo URL>
+Commit: <commit SHA or tag>
+Strategy doc: docs/strategy/v1.md
+Focus files: <paths you want the model to consider>
+Question: <your question>
