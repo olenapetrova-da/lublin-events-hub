@@ -1,0 +1,87 @@
+# Architecture — Minimal Make Ops (big picture)
+*Updated:* 2025-10-29
+
+This file is the **single place** for the big-picture diagram and flow. ADRs hold individual decisions; Strategy holds the step-by-step plan.
+
+---
+
+## Diagram (Mermaid)
+```mermaid
+flowchart TD
+  subgraph Sources
+    A1[lublin.eu - official adapter]
+    A2[zoom.lublin.pl - zoom adapter]
+  end
+
+  A1 --> H[hub: merge/dedupe\nJSON when sheet=0]
+  A2 --> H
+
+  subgraph AppsScript
+    R[refresh]
+    M[materialize]
+    Q[doGet - Query API]
+  end
+
+  H --> R --> S1[raw_events]
+  S1 --> M --> S2[events]
+  Q --> S2
+
+  subgraph Make_Telegram
+    T1[Parse user text -> params]
+    T2[HTTP -> Apps Script API]
+    T3[Send Message]
+  end
+
+  Q <-->|JSON| T2
+```
+
+---
+
+## End-to-end flow
+
+### A) Refresh (daily, zero Make ops)
+1. **refresh()** calls hub once (7‑day window, `sheet=0`, `group_times=1`).
+2. Write **staging** → `raw_events` (10 columns incl. `_EndDate`).
+3. **materialize()** reads `raw_events`, normalizes, writes **`events`**.
+
+### B) Serve (per user request, 1 HTTP in Make)
+1. Telegram → Make parses user text → query params.  
+2. Make does **1 HTTP** to **doGet(e)** (Apps Script).  
+3. Apps Script filters `events` (date/period/payment/category), paginates, returns JSON.  
+4. Make formats and **sends message**.
+
+---
+
+## Responsibilities
+- **Adapters (official, zoom)**: scrape, minimal normalization; zoom carries `_EndDate`.
+- **hub**: merge sources, dedupe showtimes; JSON mode when `sheet=0`.
+- **Apps Script**: refresh/materialize/query; category mapping via Sheets taxonomy.
+- **Sheets**: data store (`raw_events` staging → `events` normalized).  
+- **Make**: chat glue only (parse → HTTP → send).
+
+---
+
+## Data model (summary)
+- **raw_events (10)**: Title, Date, Time, Venue, Category, Link, Image URL, Payment for Entry, Source, `_EndDate`.
+- **events (9)**: event_id, title, start_dt, end_dt, venue, payment, categories, source, url.
+
+**Full rules:** see ADR‑0005.  
+**API contract:** see ADR‑0014.
+
+---
+
+## Pointers
+- High‑level decision: ADR‑0003.  
+- Hub JSON mode: ADR‑0004.  
+- Data model details: ADR‑0005.  
+- Query API: ADR‑0014.  
+- Step‑by‑step plan: `docs/strategy/v4.md`.
+
+---
+
+## Implementer checklist
+- [ ] Script Properties: hub URL, sheet ID, timezone.  
+- [ ] Time trigger for `refresh()` (daily).  
+- [ ] Web App deployed → note URL.  
+- [ ] Make scenario: parse → HTTP → send.  
+- [ ] Taxonomy tables maintained; review `taxonomy_unmapped`.
