@@ -8,6 +8,7 @@ Single source of truth for code, docs, and decisions.
 - `integrations/make/` — Make.com scenario exports (JSON).
 - `sheets/` — Google Sheets schema, sample CSVs, and docs.
 - `docs/strategy/` — Strategy versions (v1, v2, ...).
+- `docs/architecture/` — the big-picture diagram + flow.
 - `docs/adr/` — Architecture Decision Records.
 - `prompts/` — Prompt packs and “context stamps” examples.
 - `CHANGELOG.md` — Human‑readable changes by version.
