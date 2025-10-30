@@ -1,0 +1,20 @@
+Context Repo: https://github.com/olenapetrova-da/lublin-events-hub 
+Commit: d9be15e # update if you tag or push more 
+Task: #1 Implement refresh() (hub → raw_events) 
+Goal / DoD: - Call hub once for a 7-day window with sheet=0&group_times=1&pages=3&limit=1000 - Write raw_events with 10 columns: Title, Date, Time, Venue, Category, Link, Payment for Entry, Source, _EndDate - Default _EndDate=Date when missing; one batch write; zero Make ops; config via Script Properties 
+Focus files: 
+  docs/architecture/overview-minimal-make-ops.md 
+  docs/adr/ADR-0004-hub-json-mode-for-refresh.md 
+  apps_script/Lublin_events_DB_AppScript/refresh.gs 
+  apps_script/Lublin_events_DB_AppScript/materialize.gs (for interface reference only}
+  workers/shared/lublin-events-hub.js 
+  workers/lublin-eu/Lublin_official_Worker_forHub2.js 
+  workers/zoom-lublin/Lublin_Zoom_Worker_forHub.js 
+Question: 
+  1) Check that Workers/hub JSON match ADR-0004: 
+    confirm the fields needed for raw_events (incl. _EndDate) are present/consistent. 
+    2) Draft/repair refresh(): read HUB_URL/SHEET_ID/TZ from Script Properties; fetch 7-day JSON; batch-write 9 columns; minimal logging. 
+    3) Give a quick test plan: how to run refresh() manually and verify columns + a few sample rows. 
+  Constraints: 
+  - No new external services or Make ops for refresh 
+  - Don’t change the agreed schema/strategy

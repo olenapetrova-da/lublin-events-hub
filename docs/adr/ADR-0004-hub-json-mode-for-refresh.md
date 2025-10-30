@@ -8,7 +8,7 @@ The hub supports two modes: `sheet=1` (row output) and `sheet=0` (JSON `events[]
 ## Decision
 - Call the hub with `sheet=0` and `group_times=1` for a 7‑day window.  
 - Apps Script parses the returned `events[]` and writes the **staging** sheet `raw_events` with 10 columns:  
-  `Title, Date, Time, Venue, Category, Link, Image URL, Payment for Entry, Source, _EndDate`.  
+  `Title, Date, Time, Venue, Category, Link, Payment for Entry, Source, _EndDate`.  
 - If `_EndDate` is missing for a source, default it to `Date`.
 
 ## Consequences
