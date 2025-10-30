@@ -1,4 +1,4 @@
-# ADR-0005: Data model — `raw_events` (10 cols) → `events` (normalized)
+# ADR-0005: Data model — `raw_events` (9 cols) → `events` (normalized)
 *Status:* Accepted  
 *Date:* 2025-10-29
 
@@ -6,8 +6,8 @@
 We need a stable, testable model: ingest raw as-is, then normalize once for serving queries.
 
 ## Decision
-- **Staging (`raw_events`) — 10 columns**  
-  `Title, Date, Time, Venue, Category, Link, Image URL, Payment for Entry, Source, _EndDate`
+- **Staging (`raw_events`) — 19 columns**  
+  `Title, Date, Time, Venue, Category, Link, Payment for Entry, Source, _EndDate`
 - **Normalized (`events`) — 9 columns**  
   `event_id, title, start_dt, end_dt, venue, payment, categories, source, url`
 
