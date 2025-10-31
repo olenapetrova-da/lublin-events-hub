@@ -6,7 +6,7 @@
 We need a stable, testable model: ingest raw as-is, then normalize once for serving queries.
 
 ## Decision
-- **Staging (`raw_events`) — 19 columns**  
+- **Staging (`raw_events`) — 9 columns**  
   `Title, Date, Time, Venue, Category, Link, Payment for Entry, Source, _EndDate`
 - **Normalized (`events`) — 9 columns**  
   `event_id, title, start_dt, end_dt, venue, payment, categories, source, url`
