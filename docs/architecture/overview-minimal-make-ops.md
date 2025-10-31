@@ -61,6 +61,17 @@ flowchart TD
 
 ---
 
+### Adapter runtime (budget, enrichment, pagination)
+
+- **Budget:** Each adapter enforces a single subrequest budget shared by list+detail fetches. Default `subreq_budget_max = 45` (example).
+- **Pages:** Scan list pages sequentially up to `pages` (default 3). Stop when `pages_scanned == pages`, or when budget is exhausted, or no more items.
+- **Enrichment:** If `enrich=1`, adapters may fetch detail pages up to `enrich_max`, but never exceeding the remaining budget.
+- **Never crash on budget:** On budget exhaustion, **return partial results** with telemetry — `pages_scanned`, `budget_used`, `has_more=true`, `stopped_reason="budget"`.
+- **Deterministic order:** Items are yielded in a stable order (date/time asc). Re-runs for the same window are idempotent.
+- **Apps Script tolerance:** `refresh()` accepts partials; daily 7-day refresh achieves eventual completeness without Make ops.
+
+---
+
 ## Data model (summary)
 - **raw_events (10)**: Title, Date, Time, Venue, Category, Link, Image URL, Payment for Entry, Source, `_EndDate`.
 - **events (9)**: event_id, title, start_dt, end_dt, venue, payment, categories, source, url.
