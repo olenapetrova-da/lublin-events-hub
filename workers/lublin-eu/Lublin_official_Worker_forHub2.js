@@ -46,7 +46,20 @@ function decodeEntities(s){
     .replace(/&raquo;/g,"»");
 }
 function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
-function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
+function norm(s){
+  const t = text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
+  return t
+    .replace(/[łŁ]/g,"l")
+    .replace(/[śŚ]/g,"s")
+    .replace(/[ćĆ]/g,"c")
+    .replace(/[źŻŹ]/g,"z")
+    .replace(/[óÓ]/g,"o")
+    .replace(/[ńŃ]/g,"n")
+    .replace(/[ąĄ]/g,"a")
+    .replace(/[ęĘ]/g,"e")
+    .toLowerCase();
+}
+
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
 
 function mergeTimes(a,b){
@@ -356,21 +369,27 @@ function detectPaymentList(block){
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
   return "";
 }
+
 function detectPaymentPage(html){
   const t = norm(html);
   const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
-  const hasPaid = /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
+  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
   if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
+
 function normalizePaymentExact(v){
   const t = norm(v);
-  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
+  // FREE first
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
+  // then PAID (also tolerate "patny" typos)
+  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
   return "";
 }
+
+
 
 //
 // ---------- label helpers & grouping ----------
