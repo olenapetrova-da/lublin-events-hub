@@ -1,30 +1,36 @@
-// lublin-events-hub — Service Bindings first (L_ZOOM / L_OFFICIAL), HTTP fallback
-// Global dedupe + limit. Adds per-source stats, merged Sources list per event,
-// and showtime merge stats. Returns events[] (sheet=0) or rows[] (9 cols, sheet=1).
+// lublin-events-hub — Orchestrator for multiple adapters (bindings preferred, HTTP fallback)
+// Contract: adapters return JSON with events[] when sheet=0 (default). Hub dedupes + caps.
+// Sheet mode (sheet=1) returns rows[] with 8 columns (NO Image URL): 
+// [Title, Date, Time, Venue, Category, Link, Payment for Entry, Source]
 
 export default {
   async fetch(request, env, ctx) {
     const u = new URL(request.url);
     const q = u.searchParams;
 
-    // ---- inputs ----
-    const date   = (q.get("date") || "").trim();
-    const period = (q.get("period") || "day").toLowerCase(); // day|week
-    const days   = q.get("days") || (period === "week" ? "7" : "1");
-    const limit  = clamp(int(q.get("limit"), 30), 1, 1000);
-    const pages  = clamp(int(q.get("pages"), 3), 1, 5);
-    const sheet  = flag(q.get("sheet"));
-    const groupTimes = flag(q.get("group_times"));
+    // ---- Inputs (refresh-runbook defaults) ----
+    const date       = (q.get("date") || "").trim();
+    const period     = (q.get("period") || "day").toLowerCase(); // day|week
+    const days       = q.get("days") || (period === "week" ? "7" : "1");
+    const limit      = clamp(int(q.get("limit"), 1000), 1, 1000);
+    const pages      = clamp(int(q.get("pages"), 3), 1, 5);
+    const sheet      = flag(q.get("sheet"));          // JSON mode by default (sheet=0)
+    const groupTimes = flag(q.get("group_times"));    // union showtimes at adapter level
+
     if (!date) return json({ error: "Missing ?date=YYYY-MM-DD" }, 400);
 
-    // ---- source resolution (bindings > explicit src list > CSV > legacy URLs) ----
+    // Optional enrichment pass-through (adapters handle details/budget internally)
+    const enrich     = flag(q.get("enrich"));
+    const enrich_max = clamp(int(q.get("enrich_max"), 15), 1, 100);
+    const budget     = int(q.get("budget"), 0);       // optional: forwarded to adapters iff >0
+
+    // ---- Source resolution (bindings > explicit src > CSV list > legacy URLs) ----
     const hasZoomBinding   = !!env.L_ZOOM;
     const hasLublinBinding = !!env.L_OFFICIAL;
 
-    const legacyZoom   = q.get("lublin_zoom")     || "https://zoom-lublin-2hub.elenipster.workers.dev/";
-    const legacyLublin = q.get("lublin_official") || "https://official-lublin-2hub.elenipster.workers.dev/";
+    const legacyZoom   = withSlash(q.get("lublin_zoom")     || "https://zoom-lublin-2hub.elenipster.workers.dev/");
+    const legacyLublin = withSlash(q.get("lublin_official") || "https://official-lublin-2hub.elenipster.workers.dev/");
 
-    // alias → binding (keep "lublin" as synonym if you want)
     const aliasToBinding = { zoom: "L_ZOOM", official: "L_OFFICIAL", lublin: "L_OFFICIAL" };
 
     const srcs = q.getAll("src").map(s => s.trim()).filter(Boolean);
@@ -39,25 +45,26 @@ export default {
     } else if ((q.get("sources") || "").trim()) {
       sources = q.get("sources").split(",").map(s => ({ type: "http", url: withSlash(s.trim()) }));
     } else {
-      // default: prefer bindings if present, else fallback to legacy URLs
-      if (hasZoomBinding)   sources.push({ type: "binding", name: "L_ZOOM"     }); else sources.push({ type: "http", url: withSlash(legacyZoom)   });
-      if (hasLublinBinding) sources.push({ type: "binding", name: "L_OFFICIAL" }); else sources.push({ type: "http", url: withSlash(legacyLublin) });
+      if (hasZoomBinding)   sources.push({ type: "binding", name: "L_ZOOM"     }); else sources.push({ type: "http", url: legacyZoom   });
+      if (hasLublinBinding) sources.push({ type: "binding", name: "L_OFFICIAL" }); else sources.push({ type: "http", url: legacyLublin });
     }
 
-    // ---- over-fetch per source (more if grouping is on) ----
+    // ---- Over-fetch per source (helps dedupe; adapters still cap by `limit=per`) ----
     const overFactor = groupTimes ? 3 : 2;
     const perSource  = Math.max((limit * overFactor) / Math.max(1, sources.length), limit);
-    const per = Math.min(Math.ceil(perSource), 1000);
+    const per        = Math.min(Math.ceil(perSource), 1000);
 
-    // Query string for adapters
-    const qs = `?date=${encodeURIComponent(date)}&period=${period}&days=${days}&limit=${per}` +
-               `&sheet=0&group_times=${groupTimes ? "1" : "0"}&pages=${pages}`;
+    // Build adapter query
+    let qs = `?date=${encodeURIComponent(date)}&period=${period}&days=${encodeURIComponent(days)}&limit=${per}` +
+             `&sheet=0&group_times=${groupTimes ? "1" : "0"}&pages=${pages}`;
+    if (enrich) qs += `&enrich=1&enrich_max=${enrich_max}`;
+    if (budget > 0) qs += `&budget=${clamp(budget, 1, 48)}`;
 
-    // ---- run all sources in parallel ----
+    // ---- Run all sources in parallel ----
     const fetches = sources.map((src) => callAdapter(src, qs, env));
     const results = await Promise.all(fetches);
 
-    // ---- collect ----
+    // ---- Collect events + per-source stats ----
     const allEvents = [];
     const errors = [];
     const per_source = results.map(r => ({
@@ -81,21 +88,32 @@ export default {
       }
     }
 
-    // ---- dedupe + cap ----
+    // ---- Dedupe + cap ----
     const stats = { merges: 0, time_merges: 0 };
     const uniq = dedupe(allEvents, stats);
     const top = uniq.slice(0, limit);
 
-    // enrich + rows
+    // ---- Prepare outputs
     const rows = top.map(toRow);
     const topEnriched = top.map(e => ({
       ...e,
       Sources: (Array.isArray(e._via) ? Array.from(new Set(e._via)).join(", ") : (e.Source || ""))
     }));
 
-    return json({
+    // Envelope fields useful for runbook visibility
+    const envelope = {
       source: "events-hub",
       date, period, days,
+      group_times: groupTimes ? 1 : 0,
+      pages,
+      limit,
+      enrich: enrich ? 1 : 0,
+      enrich_max: enrich ? enrich_max : 0,
+      budget: budget > 0 ? clamp(budget, 1, 48) : 0
+    };
+
+    return json({
+      ...envelope,
       sources_count: sources.length,
       received: allEvents.length,
       deduped: uniq.length,
@@ -109,7 +127,7 @@ export default {
   }
 };
 
-/* ---------------- calls & utils ---------------- */
+/* ---------------- adapter calls ---------------- */
 async function callAdapter(src, qs, env){
   const headers = { "Accept": "application/json" };
   try {
@@ -118,25 +136,30 @@ async function callAdapter(src, qs, env){
       const req = new Request(url, { headers, method: "GET" });
       const res = await env[src.name].fetch(req);
       const raw = await res.text();
-      let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0,800) }; }
-      return { ok: res.ok, data, source: `[binding:${src.name}]` , status: res.status };
+      let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 800) }; }
+      return { ok: res.ok, data, source: `[binding:${src.name}]`, status: res.status };
     } else {
-      const url = withSlash(src.url) + qs; // http
+      const url = withSlash(src.url) + qs;
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 20000);
       try {
         let res = await fetch(url, { signal: ctrl.signal, headers, redirect: "follow" });
-        if (!res.ok && [520,522,523,524].includes(res.status)) res = await fetch(url, { signal: ctrl.signal, headers, redirect: "follow" });
+        if (!res.ok && [520, 522, 523, 524].includes(res.status)) {
+          res = await fetch(url, { signal: ctrl.signal, headers, redirect: "follow" });
+        }
         const raw = await res.text();
-        let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0,800) }; }
+        let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 800) }; }
         return { ok: res.ok, data, source: url, status: res.status };
-      } finally { clearTimeout(t); }
+      } finally {
+        clearTimeout(t);
+      }
     }
   } catch (e) {
     return { ok: false, error: String(e), source: src.type === "binding" ? `[binding:${src.name}]` : (src.url + qs) };
   }
 }
 
+/* ---------------- util ---------------- */
 function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
 function int(v, d){ const n = parseInt(v ?? "", 10); return Number.isFinite(n) ? n : d; }
 function clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
@@ -146,22 +169,46 @@ function withSlash(s){ s = String(s||"").trim(); return s.endsWith("/") ? s : (s
 function prettySourceTag(rSource, eSource){
   if (eSource && eSource.trim()) return eSource.trim();
   const s = String(rSource||"");
-  if (s.startsWith("[binding:L_ZOOM]")) return "zoom";
-  if (s.startsWith("[binding:L_OFFICIAL]")) return "official";
+  if (s.startsWith("[binding:L_ZOOM]")) return "zoom.lublin.pl";
+  if (s.startsWith("[binding:L_OFFICIAL]")) return "lublin.eu";
   try { const u = new URL(s); return u.hostname; } catch { return s; }
 }
 
-/* ---- dedupe & helpers ---- */
-function toRow(e){ return { values: [ e.Title||"", e.Date||"", e.Time||"", e.Venue||"", e.Category||"", e.Link||"", e["Image URL"]||"", e["Payment for Entry"]||"", e.Source||"" ]}; }
+/* ---------------- dedupe & scoring ---------------- */
+function toRow(e){
+  // 8 columns: Title, Date, Time, Venue, Category, Link, Payment for Entry, Source
+  return { values: [
+    e.Title || "",
+    e.Date || "",
+    e.Time || "",
+    e.Venue || "",
+    e.Category || "",
+    e.Link || "",
+    e["Payment for Entry"] || "",
+    e.Source || ""
+  ]};
+}
+
 function normalizeForKey(s){ return (s||"").normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
 function titleDateVenueKey(e){ return `${normalizeForKey(e.Title)}|${e.Date||""}|${normalizeForKey(e.Venue)}`; }
+
 function tokenSet(s){ return new Set(normalizeForKey(s).split(" ").filter(Boolean)); }
 function overlap(a,b){ const A=tokenSet(a),B=tokenSet(b); if(!A.size||!B.size) return 0; let c=0; for(const t of A) if(B.has(t)) c++; return c/Math.min(A.size,B.size); }
 function sameDate(a,b){ return (a||"") === (b||""); }
+
 function parseTimes(s){ const set=new Set(); (s||"").split(",").map(x=>x.trim()).filter(Boolean).forEach(t=>set.add(t)); return set; }
 function mergeTimes(a,b){ const out=parseTimes(a); for(const t of parseTimes(b)) out.add(t); return Array.from(out).sort().join(", "); }
-function scoreQuality(e){ let s=0; if(e["Image URL"]) s++; if((e.Category||"").trim()) s++; if((e["Payment for Entry"]||"").trim()) s++; if((e.Time||"").trim()) s++; return s; }
+
+// Quality score WITHOUT Image URL; prefer Payment/Time/Category/Venue presence
+function scoreQuality(e){
+  let s = 0;
+  if ((e["Payment for Entry"]||"").trim()) s += 2; // payment is valuable
+  if ((e.Time||"").trim()) s += 2;
+  if ((e.Category||"").trim()) s += 1;
+  if ((e.Venue||"").trim()) s += 1;
+  return s;
+}
 
 function pickBetter(a, b){
   const sa = scoreQuality(a), sb = scoreQuality(b);
@@ -171,11 +218,13 @@ function pickBetter(a, b){
   if (sa > sb) { winner = a; other = b; }
   else if (sb > sa) { winner = b; other = a; }
   else {
-    // tie-breakers, but still decide a single "winner"
-    if ((a["Payment for Entry"]||"") && !(b["Payment for Entry"]||"")) { winner = a; other = b; }
-    else if ((b["Payment for Entry"]||"") && !(a["Payment for Entry"]||"")) { winner = b; other = a; }
-    else if ((a["Image URL"]||"") && !(b["Image URL"]||"")) { winner = a; other = b; }
-    else if ((b["Image URL"]||"") && !(a["Image URL"]||"")) { winner = b; other = a; }
+    // tie-breakers: prefer one that has Payment; then one that has Time; else 'a'
+    const aPay = (a["Payment for Entry"]||"");
+    const bPay = (b["Payment for Entry"]||"");
+    if (aPay && !bPay) { winner = a; other = b; }
+    else if (bPay && !aPay) { winner = b; other = a; }
+    else if ((a.Time||"") && !(b.Time||"")) { winner = a; other = b; }
+    else if ((b.Time||"") && !(a.Time||"")) { winner = b; other = a; }
     else { winner = a; other = b; }
   }
 
@@ -183,9 +232,15 @@ function pickBetter(a, b){
   if (winner.Time && other.Time) winner.Time = mergeTimes(winner.Time, other.Time);
   else if (!winner.Time && other.Time) winner.Time = other.Time;
 
+  // Prefer explicit _EndDate if winner lacks it
+  if (!winner._EndDate && other._EndDate) winner._EndDate = other._EndDate;
+
+  // Prefer Category/Venue if missing
+  if (!winner.Category && other.Category) winner.Category = other.Category;
+  if (!winner.Venue && other.Venue) winner.Venue = other.Venue;
+
   return winner;
 }
-
 
 function dedupe(list, stats){
   stats = stats || { merges: 0, time_merges: 0 };
@@ -207,7 +262,7 @@ function dedupe(list, stats){
       // fuzzy fallback against already-kept items
       for (let i = 0; i < out.length; i++) {
         const ex = out[i];
-        if (d !== (ex.Date || "")) continue;
+        if (!sameDate(d, ex.Date || "")) continue;
         if (overlap(e.Title || "", ex.Title || "") >= 0.85 &&
             overlap(e.Venue || "", ex.Venue || "") >= 0.60) { idx = i; break; }
       }
@@ -220,7 +275,6 @@ function dedupe(list, stats){
       out.push(copy);
     } else {
       const beforeTime = out[idx].Time;
-      const beforeVia = Array.isArray(out[idx]._via) ? new Set(out[idx]._via) : new Set();
       out[idx] = pickBetter(out[idx], e);
       stats.merges++;
       const beforeSize = parseTimes(beforeTime).size;
@@ -228,9 +282,10 @@ function dedupe(list, stats){
       if (beforeSize && parseTimes(e.Time).size && afterSize > beforeSize) stats.time_merges++;
 
       // union sources
+      const prevVia = Array.isArray(out[idx]._via) ? new Set(out[idx]._via) : new Set();
       const add = Array.isArray(e._via) ? e._via : (e.Source ? [e.Source] : []);
-      for (const v of add) beforeVia.add(v);
-      out[idx]._via = Array.from(beforeVia);
+      for (const v of add) prevVia.add(v);
+      out[idx]._via = Array.from(prevVia);
     }
 
     if (urlKey) keyToIdx.set(urlKey, idx);

@@ -417,6 +417,7 @@ function json(obj,status=200){ return new Response(JSON.stringify(obj), {status,
 function jserr(msg,status=400){ return json({ error: String(msg) }, status); }
 
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
+function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href; } }
 function labelValue(html, labelRe){
   const re = new RegExp(`<div\\s+class="form-row"[^>]*>\\s*<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*<span[^>]*>\\s*([^<]+?)\\s*<\\/span>`,"i");
   const m = re.exec(html); return m ? m[1] : "";
