@@ -1,10 +1,62 @@
 // Lublin_official_Worker_forHub2.js
 // ADRs: 0005, 0006, 0007, 0008, 0009, 0010
-// - Budget guard counts: cache.match (+1), fetch (+1, retry +1), cache.put (+1)
-// - Early-stop list crawl when enrich=1 (collect ~10x batch)
-// - No cache use on detail pages during enrichment
-// - No "Image URL" field; Payment normalized Yes/No/""
+// - Counts ALL subrequests: cache.match(+1), fetch(+1, retry +1), cache.put(+1)
+// - Early-stops list crawl when enrich=1 (collect ~10× batch)
+// - Skips cache on detail pages (no match/put) to preserve budget
+// - No "Image URL"; Payment normalized to Yes/No/""
 
+//
+// ---------- define the small response helpers FIRST (fixes TS “Cannot find name”) ----------
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "access-control-allow-origin": "*"
+    }
+  });
+}
+function jserr(msg, status = 400) {
+  return json({ error: String(msg) }, status);
+}
+
+//
+// ---------- tiny utils (declared early; safe for TS) ----------
+function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
+function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
+function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
+function pad(n){ return n<10?("0"+n):(""+n); }
+function fmt(d){ return d.toISOString().slice(0,10); }
+function addDays(d,n){ const x=new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
+function parseYMD(s){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||""); return m?new Date(Date.UTC(+m[1],+m[2]-1,+m[3])):null; }
+function toDMY(d){ return `${pad(d.getUTCDate())}-${pad(d.getUTCMonth()+1)}-${d.getUTCFullYear()}`; }
+function parseFromUrl(u){ const m=/\/(\d{2})-(\d{2})-(\d{4}),dzien\.html$/i.exec(u||""); return m?new Date(Date.UTC(+m[3],+m[2]-1,+m[1])):null; }
+function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
+function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href || ""; } }
+function normalizeHtml(s){ return (s||"").replace(/\r/g,"").replace(/\t/g," ").replace(/&nbsp;/g," ").replace(/[‐-‒–—]/g,"—"); }
+function stripTags(s){ return (s||"").replace(/<[^>]*>/g," "); }
+function decodeEntities(s){
+  return (s||"")
+    .replace(/&quot;|&#34;/g,'"')
+    .replace(/&apos;|&#39;/g,"'")
+    .replace(/&amp;/g,"&")
+    .replace(/&lt;/g,"<")
+    .replace(/&gt;/g,">")
+    .replace(/&laquo;|&#171;/g,"«")
+    .replace(/&raquo;/g,"»");
+}
+function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
+function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
+function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
+
+function mergeTimes(a,b){
+  const arr = s => (s||"").split(",").map(x => x.trim()).filter(Boolean);
+  const set = new Set([...arr(a), ...arr(b)]);
+  return Array.from(set).sort().join(", ");
+}
+
+//
+// ---------- Worker ----------
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -23,23 +75,24 @@ export default {
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
-      // Budget (ADR-0010): hard cap ≤48; count cache.match/fetch/cache.put
+      // Budget (ADR-0010): ≤48, count cache.match/fetch/cache.put
       const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
       const budget     = { used: 0, max: userBudget || 48 };
 
+      // Date window
       const explicitUrl = q.get("url") || "";
       if (!startISO && !explicitUrl) return jserr("Missing ?date=YYYY-MM-DD", 400);
       const start = startISO ? parseYMD(startISO) : parseFromUrl(explicitUrl);
       if (!start) return jserr("Bad or missing date", 400);
       const end = addDays(start, days - 1);
 
-      // Day URLs
+      // Build day URLs
       const dayUrls = [];
       if (explicitUrl && /\d{2}-\d{2}-\d{4},dzien/i.test(explicitUrl)) {
         dayUrls.push(explicitUrl);
       } else {
-        for (let i = 0; i < days; i++) {
-          dayUrls.push(`https://lublin.eu/kultura/wydarzenia/${toDMY(addDays(start, i))},dzien.html`);
+        for (let i=0;i<days;i++){
+          dayUrls.push(`https://lublin.eu/kultura/wydarzenia/${toDMY(addDays(start,i))},dzien.html`);
         }
       }
 
@@ -47,23 +100,25 @@ export default {
       let pages_scanned = 0;
       const events = [];
 
-      // Early-stop collection when enrich=1 (enough candidates to feed batch)
+      // Early-stop list collection when enrich=1
       const listCollectCap = enrich
         ? Math.max(enrichMax * 10, 100)
         : (groupTimes ? Math.min(limit * 2, 2000) : limit);
 
-      // Crawl list pages within budget
+      // Crawl list pages (budget-aware)
       outer:
       for (const dayUrl of dayUrls) {
         if (budget.used >= budget.max || events.length >= listCollectCap) break;
+
         const r1 = await fetchPage(dayUrl, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(dayUrl);
         if (r1.ok) collect(parseOfficialList(r1.html, dayUrl));
+
         if (events.length >= listCollectCap || budget.used >= budget.max) continue;
 
         const m = /\/(\d{2}-\d{2}-\d{4}),dzien/i.exec(dayUrl);
         if (!m) continue;
-        for (let p = 2; p <= pagesMax; p++) {
+        for (let p=2; p<=pagesMax; p++){
           if (budget.used >= budget.max || events.length >= listCollectCap) break outer;
           const next = `https://lublin.eu/kultura/wydarzenia/${p},${m[1]},strona_dzien.html`;
           const r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
@@ -73,7 +128,7 @@ export default {
         }
       }
 
-      // Enrichment (detail pages) — no cache to save budget
+      // Enrichment (detail pages) — DO NOT use cache to save subrequests
       let enrichedCount = 0;
       let enrich_scanned = [];
       if (enrich && events.length && budget.used < budget.max) {
@@ -86,6 +141,7 @@ export default {
           const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
           if (!r.ok) continue;
           enrich_scanned.push(e.Link);
+
           const info = parseOfficialDetail(r.html);
           if (info.Payment !== "") e["Payment for Entry"] = info.Payment;
           if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
@@ -132,8 +188,8 @@ export default {
 
       return json(payload);
 
-      function collect(arr) {
-        for (const e of arr) {
+      function collect(arr){
+        for (const e of arr){
           events.push(e);
           if (events.length >= listCollectCap) break;
         }
@@ -144,12 +200,13 @@ export default {
   }
 };
 
-/* ---------------- HTTP: count ALL subrequests (ADR-0010) ---------------- */
+//
+// ---------- HTTP with budget counting (ADR-0010) ----------
 async function fetchPage(url, ctx, budget, opts = {}) {
   const useCache   = opts.useCache   !== false; // default true
   const writeCache = opts.writeCache !== false; // default true
 
-  if (budget.used >= budget.max) return { ok: false, status: 0, html: "" };
+  if (budget.used >= budget.max) return { ok:false, status:0, html:"" };
 
   const cache = caches.default;
   const req = new Request(url, {
@@ -162,14 +219,14 @@ async function fetchPage(url, ctx, budget, opts = {}) {
 
   // cache.match counts (+1)
   if (useCache) {
-    if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+    if (budget.used + 1 > budget.max) return { ok:false, status:0, html:"" };
     budget.used++;
     const cached = await cache.match(req);
-    if (cached) return { ok: true, status: 200, html: await cached.text() };
+    if (cached) return { ok:true, status:200, html: await cached.text() };
   }
 
   // fetch counts (+1)
-  if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+  if (budget.used + 1 > budget.max) return { ok:false, status:0, html:"" };
   budget.used++;
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 20000);
@@ -177,16 +234,16 @@ async function fetchPage(url, ctx, budget, opts = {}) {
   try {
     let res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
 
-    // retry also counts (+1)
-    if (!res.ok && [520, 522, 523, 524].includes(res.status) && (budget.used + 1) <= budget.max) {
+    // retry counts (+1)
+    if (!res.ok && [520,522,523,524].includes(res.status) && (budget.used + 1) <= budget.max) {
       budget.used++;
       res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
     }
 
     const html = await res.text();
-    if (!res.ok) return { ok: false, status: res.status, html };
+    if (!res.ok) return { ok:false, status:res.status, html };
 
-    // cache.put counts (+1) — skip for details
+    // cache.put counts (+1) — skip on details
     if (useCache && writeCache && (budget.used + 1) <= budget.max) {
       budget.used++;
       const out = new Response(html, {
@@ -198,15 +255,16 @@ async function fetchPage(url, ctx, budget, opts = {}) {
       ctx && ctx.waitUntil(cache.put(req, out.clone()));
     }
 
-    return { ok: true, status: 200, html };
+    return { ok:true, status:200, html };
   } catch {
-    return { ok: false, status: 0, html: "" };
+    return { ok:false, status:0, html:"" };
   } finally {
     clearTimeout(to);
   }
 }
 
-/* ---------------- List parsing (Official) ---------------- */
+//
+// ---------- Official list parser ----------
 function parseOfficialList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
@@ -248,17 +306,17 @@ function parseOfficialList(raw, baseUrl) {
       Venue: venue,
       Category: category,
       Link: href,
-      "Payment for Entry": detectPaymentList(block),  // "No" or ""
+      "Payment for Entry": detectPaymentList(block), // "No" or ""
       Source: "lublin.eu",
       _EndDate: iso,
-      _fp_url: urlPath(href),
-      _fp_tdv: f_title_date_venue({ Title: title, Date: iso, Venue: venue })
+      _fp_url: urlPath(href)
     });
   }
   return out;
 }
 
-/* ---------------- Detail parsing (Official) ---------------- */
+//
+// ---------- Official detail parser ----------
 function parseOfficialDetail(raw) {
   const html = normalizeHtml(raw);
 
@@ -291,7 +349,8 @@ function parseOfficialDetail(raw) {
   return { Time: t1, Venue: text(v1), Category: text(c1), Payment: payment };
 }
 
-/* ---------------- Payment normalization ---------------- */
+//
+// ---------- Payment normalization (incl. normalizePaymentExact) ----------
 function detectPaymentList(block){
   const t = norm(block);
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
@@ -306,8 +365,35 @@ function detectPaymentPage(html){
   if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
+function normalizePaymentExact(v){
+  const t = norm(v);
+  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
+  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
+  return "";
+}
 
-/* ---------------- Grouping & helpers ---------------- */
+//
+// ---------- label helpers & grouping ----------
+function labelValue(html, labelRe){
+  const re = new RegExp(
+    `<div\\s+class="form-row"[^>]*>\\s*` +
+    `<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*` +
+    `<span[^>]*>\\s*([^<]+?)\\s*<\\/span>`,
+    "i"
+  );
+  const m = re.exec(html);
+  return m ? m[1] : "";
+}
+function labelBlock(html, labelRe){
+  const re = new RegExp(
+    `<div\\s+class="form-row"[^>]*>\\s*` +
+    `<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*` +
+    `<span[^>]*>\\s*([\\s\\S]*?)\\s*<\\/span>`,
+    "i"
+  );
+  const m = re.exec(html);
+  return m ? text(m[1]) : "";
+}
 function groupSameDayShowtimes(list){
   const map = new Map();
   for (const e of list) {
@@ -321,49 +407,8 @@ function groupSameDayShowtimes(list){
       const a = (prev["Payment for Entry"]||"").toLowerCase();
       const b = (e["Payment for Entry"]||"").toLowerCase();
       if (!a && b) prev["Payment for Entry"] = e["Payment for Entry"];
-      else if (a && b && a !== b) prev["Payment for Entry"] = "No";
+      else if (a && b && a !== b) prev["Payment for Entry"] = "No"; // prefer free on conflict
     }
   }
   return [...map.values()];
-}
-
-function mergeTimes(a,b){
-  const arr = s => (s||"").split(",").map(x => x.trim()).filter(Boolean);
-  const set = new Set([...arr(a), ...arr(b)]);
-  return Array.from(set).sort().join(", ");
-}
-
-function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
-function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
-function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
-
-function parseYMD(s){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||""); return m?new Date(Date.UTC(+m[1],+m[2]-1,+m[3])):null; }
-function addDays(d,n){ const x=new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
-function pad(n){ return n<10?("0"+n):(""+n); }
-function toDMY(d){ return `${pad(d.getUTCDate())}-${pad(d.getUTCMonth()+1)}-${d.getUTCFullYear()}`; }
-function parseFromUrl(u){ const m=/\/(\d{2})-(\d{2})-(\d{4}),dzien\.html$/i.exec(u||""); return m?new Date(Date.UTC(+m[3],+m[2]-1,+m[1])):null; }
-function fmt(d){ return d.toISOString().slice(0,10); }
-
-function normalizeHtml(s){ return (s||"").replace(/\r/g,"").replace(/\t/g," ").replace(/&nbsp;/g," ").replace(/[‐-‒–—]/g,"—"); }
-function stripTags(s){ return (s||"").replace(/<[^>]*>/g," "); }
-function decodeEntities(s){
-  return (s||"")
-    .replace(/&quot;|&#34;/g,'"').replace(/&apos;|&#39;/g,"'")
-    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
-    .replace(/&laquo;|&#171;/g,"«").replace(/&raquo;|&#187;/g,"»");
-}
-function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
-function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
-function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-function normalizeForKey(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
-function f_title_date_venue(e){ return `${normalizeForKey(e.Title)}|${e.Date}|${normalizeForKey(e.Venue)}`; }
-function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
-function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href || ""; } }
-function labelValue(html, labelRe){
-  const re = new RegExp(`<div\\s+class="form-row"[^>]*>\\s*<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*<span[^>]*>\\s*([^<]+?)\\s*<\\/span>`,"i");
-  const m = re.exec(html); return m ? m[1] : "";
-}
-function labelBlock(html, labelRe){
-  const re = new RegExp(`<div\\s+class="form-row"[^>]*>\\s*<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*<span[^>]*>\\s*([\\s\\S]*?)\\s*<\\/span>`,"i");
-  const m = re.exec(html); return m ? text(m[1]) : "";
 }
