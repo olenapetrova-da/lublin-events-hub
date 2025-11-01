@@ -1,10 +1,9 @@
 // Lublin_official_Worker_forHub2.js
-// Hardened against CF "Too many subrequests":
-// - Global budget covering list pages + (optional) detail enrichment
-// - Early-stops pagination when fetchCap/limit is satisfied
-// - Never performs a fetch once budget is exhausted
-// ADRs: 0006 (enrichment in adapters), 0007 (Payment Yes/No/""), 0008 (enrich fields),
-//       0009 (_EndDate policy), 0005 (raw→normalized staging)
+// ADRs: 0005, 0006, 0007, 0008, 0009, 0010
+// - Budget guard counts: cache.match (+1), fetch (+1, retry +1), cache.put (+1)
+// - Early-stop list crawl when enrich=1 (collect ~10x batch)
+// - No cache use on detail pages during enrichment
+// - No "Image URL" field; Payment normalized Yes/No/""
 
 export default {
   async fetch(request, env, ctx) {
@@ -12,39 +11,29 @@ export default {
       const url = new URL(request.url);
       const q = url.searchParams;
 
-      // ---- Inputs (hub forwards date/period/days/pages/limit/group_times; enrich optional) ----
-      const startISO   = (q.get("date") || "").trim();                       // YYYY-MM-DD
-      const period     = (q.get("period") || "day").toLowerCase();           // day|week
+      // Inputs
+      const startISO   = (q.get("date") || "").trim();              // YYYY-MM-DD
+      const period     = (q.get("period") || "day").toLowerCase();  // day|week
       const days       = int(q.get("days"), period === "week" ? 7 : 1);
-      const pagesMax   = clamp(int(q.get("pages"), 3), 1, 5);                // per-day pages
+      const pagesMax   = clamp(int(q.get("pages"), 3), 1, 5);
       const limit      = clamp(int(q.get("limit"), 200), 1, 10000);
-      const groupTimes = flag(q.get("group_times"));                          // showtime grouping
-      const wantRows   = flag(q.get("sheet"));                                // sheet=1 -> rows
+      const groupTimes = flag(q.get("group_times"));
+      const wantRows   = flag(q.get("sheet"));
 
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
-      // ---- Subrequest budget (HARD CAP) ----
-      // Strategy: compute a conservative cap: dayPages + enrichment + headroom.
-      // This keeps us well under Cloudflare's per-request limit while maximizing useful work.
-      const dayPagesBudget   = days * pagesMax;                // worst-case list fetches
-      const enrichBudgetHint = enrich ? Math.min(enrichMax, 15) : 0;
-      const headroom         = 6;                              // redirects/retries/slop
-      const userBudget       = clamp(int(q.get("budget"), 0), 0, 48); // hub may pass it
-      const budgetMax        = Math.min(48, userBudget || (dayPagesBudget + enrichBudgetHint + headroom));
-      const budget           = { used: 0, max: budgetMax };
+      // Budget (ADR-0010): hard cap ≤48; count cache.match/fetch/cache.put
+      const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
+      const budget     = { used: 0, max: userBudget || 48 };
 
-      // Optional direct URL for a single day page (debug/manual)
       const explicitUrl = q.get("url") || "";
-
-      if (!startISO && !explicitUrl) {
-        return jserr("Missing ?date=YYYY-MM-DD", 400);
-      }
+      if (!startISO && !explicitUrl) return jserr("Missing ?date=YYYY-MM-DD", 400);
       const start = startISO ? parseYMD(startISO) : parseFromUrl(explicitUrl);
       if (!start) return jserr("Bad or missing date", 400);
       const end = addDays(start, days - 1);
 
-      // ---- Build day URLs (official site has per-day pages) ----
+      // Day URLs
       const dayUrls = [];
       if (explicitUrl && /\d{2}-\d{2}-\d{4},dzien/i.test(explicitUrl)) {
         dayUrls.push(explicitUrl);
@@ -58,48 +47,55 @@ export default {
       let pages_scanned = 0;
       const events = [];
 
-      // Fetch cap before grouping: overfetch a bit if grouping is on
-      const fetchCap = groupTimes ? Math.min(limit * 2, 2000) : limit;
+      // Early-stop collection when enrich=1 (enough candidates to feed batch)
+      const listCollectCap = enrich
+        ? Math.max(enrichMax * 10, 100)
+        : (groupTimes ? Math.min(limit * 2, 2000) : limit);
 
-      // ---- Scan day pages with pagination, honoring budget & cap ----
+      // Crawl list pages within budget
+      outer:
       for (const dayUrl of dayUrls) {
-        if (budget.used >= budget.max || events.length >= fetchCap) break;
-
-        const r1 = await fetchPage(dayUrl, ctx, budget);
+        if (budget.used >= budget.max || events.length >= listCollectCap) break;
+        const r1 = await fetchPage(dayUrl, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(dayUrl);
-        if (r1.ok) collect(parseList(r1.html, dayUrl));
+        if (r1.ok) collect(parseOfficialList(r1.html, dayUrl));
+        if (events.length >= listCollectCap || budget.used >= budget.max) continue;
 
-        // Only paginate if we still need more events and have budget
-        if (events.length >= fetchCap || budget.used >= budget.max) continue;
-
-        // Next pages: /{p},{DD-MM-YYYY},strona_dzien.html
         const m = /\/(\d{2}-\d{2}-\d{4}),dzien/i.exec(dayUrl);
         if (!m) continue;
-
         for (let p = 2; p <= pagesMax; p++) {
-          if (budget.used >= budget.max || events.length >= fetchCap) break;
+          if (budget.used >= budget.max || events.length >= listCollectCap) break outer;
           const next = `https://lublin.eu/kultura/wydarzenia/${p},${m[1]},strona_dzien.html`;
-          const r = await fetchPage(next, ctx, budget);
+          const r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
           pages_scanned++; scanned.push(next);
           if (!r.ok) break;
-          collect(parseList(r.html, next));
+          collect(parseOfficialList(r.html, next));
         }
       }
 
-      // ---- Optional enrichment (detail pages) with strict budget guard ----
+      // Enrichment (detail pages) — no cache to save budget
       let enrichedCount = 0;
       let enrich_scanned = [];
       if (enrich && events.length && budget.used < budget.max) {
-        const remaining = Math.max(0, budget.max - budget.used);
-        const cap = Math.min(enrichMax, remaining); // 1 fetch per detail (retry included in budget)
-        if (cap > 0) {
-          const res = await enrichDetails(events, cap, ctx, budget);
-          enrichedCount = res.enriched;
-          enrich_scanned = res.scanned;
+        const targets = events.filter(e =>
+          !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
+        );
+        const cap = Math.min(enrichMax, Math.max(0, budget.max - budget.used));
+        for (const e of targets.slice(0, cap)) {
+          if (budget.used >= budget.max) break;
+          const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
+          if (!r.ok) continue;
+          enrich_scanned.push(e.Link);
+          const info = parseOfficialDetail(r.html);
+          if (info.Payment !== "") e["Payment for Entry"] = info.Payment;
+          if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
+          if (info.Venue && !e.Venue) e.Venue = info.Venue;
+          if (info.Category && !e.Category) e.Category = info.Category;
+          enrichedCount++;
         }
       }
 
-      // ---- Group & finalize
+      // Finalize
       const finalized = groupTimes ? groupSameDayShowtimes(events) : events;
       const sliced = finalized.slice(0, limit);
 
@@ -113,14 +109,13 @@ export default {
         budget_used: budget.used,
         budget_max: budget.max,
         budget_exhausted: budget.used >= budget.max,
-        count: sliced.length,
         enriched: enrichedCount,
         enrich_scanned,
+        count: sliced.length,
         events: sliced
       };
 
       if (wantRows) {
-        // 8 columns (no Image URL): Title, Date, Time, Venue, Category, Link, Payment for Entry, Source
         payload.rows = sliced.map(e => ({
           values: [
             e.Title || "",
@@ -140,19 +135,20 @@ export default {
       function collect(arr) {
         for (const e of arr) {
           events.push(e);
-          if (events.length >= fetchCap) break;
+          if (events.length >= listCollectCap) break;
         }
       }
-    } catch (err) {
-      // Graceful error body for the hub to log without crashing the pipeline
-      return jserr(String(err && err.message ? err.message : err), 500);
+    } catch (e) {
+      return jserr(String(e && e.message ? e.message : e), 500);
     }
   }
 };
 
-/* ---------------- HTTP (budget-aware) ---------------- */
-async function fetchPage(url, ctx, budget) {
-  // If budget exhausted, never perform a network fetch
+/* ---------------- HTTP: count ALL subrequests (ADR-0010) ---------------- */
+async function fetchPage(url, ctx, budget, opts = {}) {
+  const useCache   = opts.useCache   !== false; // default true
+  const writeCache = opts.writeCache !== false; // default true
+
   if (budget.used >= budget.max) return { ok: false, status: 0, html: "" };
 
   const cache = caches.default;
@@ -164,52 +160,57 @@ async function fetchPage(url, ctx, budget) {
     }
   });
 
-  // Cache lookup (does not consume subrequest budget)
-  const cached = await cache.match(req);
-  if (cached) return { ok: true, status: 200, html: await cached.text() };
-
-  // "Reserve" a subrequest before going to network to avoid racing over budget
-  if (++budget.used > budget.max) {
-    // Revert reservation and bail
-    budget.used = budget.max;
-    return { ok: false, status: 0, html: "" };
+  // cache.match counts (+1)
+  if (useCache) {
+    if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+    budget.used++;
+    const cached = await cache.match(req);
+    if (cached) return { ok: true, status: 200, html: await cached.text() };
   }
 
+  // fetch counts (+1)
+  if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+  budget.used++;
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 20000);
 
   try {
     let res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
 
-    // Single retry for transient CF gateway errors (retry also consumes budget)
-    if (!res.ok && [520, 522, 523, 524].includes(res.status) && budget.used < budget.max) {
-      if (++budget.used <= budget.max) {
-        res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
-      }
+    // retry also counts (+1)
+    if (!res.ok && [520, 522, 523, 524].includes(res.status) && (budget.used + 1) <= budget.max) {
+      budget.used++;
+      res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
     }
 
     const html = await res.text();
-    if (res.ok) {
+    if (!res.ok) return { ok: false, status: res.status, html };
+
+    // cache.put counts (+1) — skip for details
+    if (useCache && writeCache && (budget.used + 1) <= budget.max) {
+      budget.used++;
       const out = new Response(html, {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=900" }
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=900"
+        }
       });
       ctx && ctx.waitUntil(cache.put(req, out.clone()));
-      return { ok: true, status: res.status, html };
     }
-    return { ok: false, status: res.status, html };
-  } catch (_e) {
+
+    return { ok: true, status: 200, html };
+  } catch {
     return { ok: false, status: 0, html: "" };
   } finally {
     clearTimeout(to);
   }
 }
 
-/* ---------------- List parsing ---------------- */
-function parseList(raw, baseUrl) {
+/* ---------------- List parsing (Official) ---------------- */
+function parseOfficialList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // Title + link
   const reTitle = /<div\s+class="event-title">\s*<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m = reTitle.exec(html)) !== null) {
@@ -217,29 +218,23 @@ function parseList(raw, baseUrl) {
     const title = text(m[2]);
     if (!title) continue;
 
-    // Local block
     const start = Math.max(0, m.index - 2000);
     const block = html.slice(start, Math.min(html.length, m.index + 2000));
 
-    // Date (DD-MM-YYYY -> ISO)
     const dmy = lastMatch(block, /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})\s*<\/span>/gi) || "";
     const iso = dmy ? dmy.split("-").reverse().join("-") : "";
 
-    // Times (collect all on card)
     const times = [];
     const reTime = /class="[^"]*event-time[^"]*"[^>]*>\s*([0-9]{1,2}:[0-9]{2})\s*<\/span>/gi;
-    let tm;
-    while ((tm = reTime.exec(block)) !== null) times.push(tm[1]);
+    let tm; while ((tm = reTime.exec(block)) !== null) times.push(tm[1]);
     const time = Array.from(new Set(times)).sort().join(", ");
 
-    // Venue (tolerant)
     const venue = text(
       lastMatch(block, /class="[^"]*(?:event__place|place|lokalizacja)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/gi) ||
       lastMatch(block, />\s*(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
       lastMatch(block, />\s*(?:Miejsce|Lokalizacja)\s*:\s*([^<]+)/gi) || ""
     );
 
-    // Category
     const category = text(
       lastMatch(block, /class="[^"]*(?:event__category|category|tag)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/gi) ||
       lastMatch(block, />\s*(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
@@ -253,9 +248,9 @@ function parseList(raw, baseUrl) {
       Venue: venue,
       Category: category,
       Link: href,
-      "Payment for Entry": detectPaymentList(block), // "No" or ""
+      "Payment for Entry": detectPaymentList(block),  // "No" or ""
       Source: "lublin.eu",
-      _EndDate: iso, // ADR-0009: always present; default to Date for single-day
+      _EndDate: iso,
       _fp_url: urlPath(href),
       _fp_tdv: f_title_date_venue({ Title: title, Date: iso, Venue: venue })
     });
@@ -263,81 +258,40 @@ function parseList(raw, baseUrl) {
   return out;
 }
 
-/* ---------------- Enrichment (detail pages) ---------------- */
-async function enrichDetails(list, cap, ctx, budget) {
-  // Target items missing Payment OR key fields
-  const targets = list.filter(
-    e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
-  );
-
-  const scanned = [];
-  let enriched = 0;
-
-  for (const e of targets.slice(0, cap)) {
-    if (budget.used >= budget.max) break;
-
-    const r = await fetchPage(e.Link, ctx, budget);
-    if (!r.ok) continue;
-    scanned.push(e.Link);
-
-    const info = parseDetail(r.html);
-
-    if (info.Payment !== "") e["Payment for Entry"] = info.Payment; // Yes/No/""
-    if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
-    if (info.Venue && !e.Venue) e.Venue = info.Venue;
-    if (info.Category && !e.Category) e.Category = info.Category;
-
-    enriched++;
-  }
-  return { enriched, scanned };
-}
-
-function parseDetail(raw) {
+/* ---------------- Detail parsing (Official) ---------------- */
+function parseOfficialDetail(raw) {
   const html = normalizeHtml(raw);
 
-  // TIME
   const t1 =
     labelValue(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
     labelBlock(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
     lastMatch(html, /(?:Godzina|Godzina rozpoczecia|Godzina rozpoczęcia|Godz\.)[^<]{0,80}?>\s*([0-9]{1,2}:[0-9]{2})/gi) ||
-    lastMatch(html, /(?:Godzina|Godz\.)\s*:?:?\s*([0-9]{1,2}:[0-9]{2})/gi) ||
-    "";
+    lastMatch(html, /(?:Godzina|Godz\.)\s*:?:?\s*([0-9]{1,2}:[0-9]{2})/gi) || "";
 
-  // VENUE
   const v1 =
     labelValue(html, '(?:Miejsce|Lokalizacja)') ||
     labelBlock(html, '(?:Miejsce|Lokalizacja)') ||
     lastMatch(html, /(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
-    lastMatch(html, /class="[^"]*(?:place|lokalizacja|event__place)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/gi) ||
-    "";
+    lastMatch(html, /class="[^"]*(?:place|lokalizacja|event__place)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/gi) || "";
 
-  // CATEGORY
   const c1 =
     labelValue(html, '(?:Kategoria|Category)') ||
     labelBlock(html, '(?:Kategoria|Category)') ||
     lastMatch(html, /(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
-    lastMatch(html, /class="[^"]*(?:category|event__category)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/gi) ||
-    "";
+    lastMatch(html, /class="[^"]*(?:category|event__category)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/gi) || "";
 
-  // PAYMENT
   const lbl =
     labelBlock(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
     labelValue(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
-    lastMatch(html, /(?:Udział|Udzial|Wstęp|Wstep)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
-    "";
+    lastMatch(html, /(?:Udział|Udzial|Wstęp|Wstep)\s*:\s*<[^>]*>\s*([^<]+)/gi) || "";
 
   let payment = "";
   if (lbl) payment = normalizePaymentExact(lbl); else payment = detectPaymentPage(html);
 
-  return {
-    Time: t1,
-    Venue: text(v1),
-    Category: text(c1),
-    Payment: payment
-  };
+  return { Time: t1, Venue: text(v1), Category: text(c1), Payment: payment };
 }
 
-/* ---------------- Payment normalization (ADR-0007) ---------------- */
+/* ---------------- Payment normalization ---------------- */
 function detectPaymentList(block){
   const t = norm(block);
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
@@ -349,20 +303,11 @@ function detectPaymentPage(html){
   const hasPaid = /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
-  if (hasFree && hasPaid) {
-    const numeric = /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t);
-    return numeric ? "Yes" : "No";
-  }
-  return "";
-}
-function normalizePaymentExact(v){
-  const t = norm(v);
-  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
-  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
+  if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
 
-/* ---------------- Grouping & small utils ---------------- */
+/* ---------------- Grouping & helpers ---------------- */
 function groupSameDayShowtimes(list){
   const map = new Map();
   for (const e of list) {
@@ -373,8 +318,6 @@ function groupSameDayShowtimes(list){
       if (e.Time) prev.Time = prev.Time ? mergeTimes(prev.Time, e.Time) : e.Time;
       if (!prev.Venue && e.Venue) prev.Venue = e.Venue;
       if (!prev.Category && e.Category) prev.Category = e.Category;
-
-      // On payment conflict prefer free ("No"), per ADR-0007
       const a = (prev["Payment for Entry"]||"").toLowerCase();
       const b = (e["Payment for Entry"]||"").toLowerCase();
       if (!a && b) prev["Payment for Entry"] = e["Payment for Entry"];
@@ -390,16 +333,16 @@ function mergeTimes(a,b){
   return Array.from(set).sort().join(", ");
 }
 
+function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
+function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
+function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
+
 function parseYMD(s){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||""); return m?new Date(Date.UTC(+m[1],+m[2]-1,+m[3])):null; }
 function addDays(d,n){ const x=new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
 function pad(n){ return n<10?("0"+n):(""+n); }
 function toDMY(d){ return `${pad(d.getUTCDate())}-${pad(d.getUTCMonth()+1)}-${d.getUTCFullYear()}`; }
 function parseFromUrl(u){ const m=/\/(\d{2})-(\d{2})-(\d{4}),dzien\.html$/i.exec(u||""); return m?new Date(Date.UTC(+m[3],+m[2]-1,+m[1])):null; }
 function fmt(d){ return d.toISOString().slice(0,10); }
-
-function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
-function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
-function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
 
 function normalizeHtml(s){ return (s||"").replace(/\r/g,"").replace(/\t/g," ").replace(/&nbsp;/g," ").replace(/[‐-‒–—]/g,"—"); }
 function stripTags(s){ return (s||"").replace(/<[^>]*>/g," "); }
@@ -410,14 +353,12 @@ function decodeEntities(s){
     .replace(/&laquo;|&#171;/g,"«").replace(/&raquo;|&#187;/g,"»");
 }
 function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
+function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
+function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
 function normalizeForKey(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
 function f_title_date_venue(e){ return `${normalizeForKey(e.Title)}|${e.Date}|${normalizeForKey(e.Venue)}`; }
-function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-function json(obj,status=200){ return new Response(JSON.stringify(obj), {status, headers:{"content-type":"application/json; charset=utf-8","access-control-allow-origin":"*"}}); }
-function jserr(msg,status=400){ return json({ error: String(msg) }, status); }
-
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
-function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href; } }
+function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href || ""; } }
 function labelValue(html, labelRe){
   const re = new RegExp(`<div\\s+class="form-row"[^>]*>\\s*<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*<span[^>]*>\\s*([^<]+?)\\s*<\\/span>`,"i");
   const m = re.exec(html); return m ? m[1] : "";
@@ -426,4 +367,3 @@ function labelBlock(html, labelRe){
   const re = new RegExp(`<div\\s+class="form-row"[^>]*>\\s*<span[^>]*class="label"[^>]*>\\s*(?:${labelRe})\\s*<\\/span>\\s*<span[^>]*>\\s*([\\s\\S]*?)\\s*<\\/span>`,"i");
   const m = re.exec(html); return m ? text(m[1]) : "";
 }
-function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }

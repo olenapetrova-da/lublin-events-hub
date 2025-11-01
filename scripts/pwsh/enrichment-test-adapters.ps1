@@ -1,12 +1,12 @@
 # == Adapter enrichment sanity check (small batch) ==
 
- === REAL ENDPOINTS  ===
+# === REAL ENDPOINTS  ===
 $HUB    = "https://lublin-events-hub.elenipster.workers.dev/"
 $ZOOM   = "https://zoom-lublin-2hub.elenipster.workers.dev/"
 $OFFICIAL = "https://official-lublin-2hub.elenipster.workers.dev/"
 
 # === TEST WINDOW ===
-$DATE = "2025-10-31"   # YYYY-MM-DD
+$DATE = "2025-11-01"   # YYYY-MM-DD
 
 # === BASE QUERY (JSON mode, no sheet rows) ===
 $BASE = "period=week&days=7&group_times=1&pages=3&limit=1000&sheet=0"

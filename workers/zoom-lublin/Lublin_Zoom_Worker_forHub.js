@@ -1,6 +1,9 @@
-// Lublin_Zoom_Worker_forHub.js — zoom.lublin.pl adapter (budget-safe + optional enrichment)
-// ADRs: 0005 (raw→normalized), 0006 (enrichment in adapters), 0007 (Payment Yes/No/""),
-//       0008 (fields to enrich), 0009 (_EndDate present)
+// Lublin_Zoom_Worker_forHub.js — zoom.lublin.pl
+// ADRs: 0005, 0006, 0007, 0008, 0009, 0010
+// - Budget guard counts: cache.match (+1), fetch (+1, retry +1), cache.put (+1)
+// - Early-stop list crawl when enrich=1 (collect ~10x batch)
+// - No cache on detail pages during enrichment
+// - No "Image URL"; Payment normalized Yes/No/""
 
 export default {
   async fetch(request, env, ctx) {
@@ -8,7 +11,6 @@ export default {
       const u = new URL(request.url);
       const q = u.searchParams;
 
-      // ---- Inputs (hub forwards these) ----
       const startISO   = (q.get("date") || "").trim();              // YYYY-MM-DD
       const period     = (q.get("period") || "day").toLowerCase();  // day|week
       const days       = int(q.get("days"), period === "week" ? 7 : 1);
@@ -20,18 +22,11 @@ export default {
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
-      // ---- Subrequest budget (HARD CAP) ----
-      // Zoom listing isn't per-day; we paginate N list pages for the whole range.
-      const listPagesBudget  = pagesMax;                    // page/1..pagesMax
-      const enrichBudgetHint = enrich ? Math.min(enrichMax, 15) : 0;
-      const headroom         = 6;                           // retry/redirect/slop
-      const userBudget       = clamp(int(q.get("budget"), 0), 0, 48);
-      const budgetMax        = Math.min(48, userBudget || (listPagesBudget + enrichBudgetHint + headroom));
-      const budget           = { used: 0, max: budgetMax };
+      // Budget (ADR-0010)
+      const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
+      const budget     = { used: 0, max: userBudget || 48 };
 
-      // Optional explicit list URL
       const listUrl = ensureSlash(q.get("url") || "https://zoom.lublin.pl/wydarzenia/");
-
       if (!startISO) return jserr("Missing ?date=YYYY-MM-DD", 400);
       const start = parseYMD(startISO);
       if (!start) return jserr("Bad ?date format, expected YYYY-MM-DD", 400);
@@ -39,26 +34,31 @@ export default {
 
       const scanned = [];
       let pages_scanned = 0;
-
-      // ---- Fetch page 1
       const events = [];
-      const fetchCap = groupTimes ? Math.min(limit * 3, 2000) : limit;
 
-      const r1 = await fetchPage(listUrl, ctx, budget);
-      pages_scanned++; scanned.push(listUrl);
-      if (r1.ok) collect(parseZoomList(r1.html, listUrl));
+      // Early-stop collection when enrich=1 (pre-filter; we'll filter by date later)
+      const listCollectCap = enrich
+        ? Math.max(enrichMax * 10, 100)
+        : (groupTimes ? Math.min(limit * 3, 2000) : limit);
 
-      // ---- Paginate: /wydarzenia/page/2/
+      // Page 1
+      if (budget.used < budget.max) {
+        const r1 = await fetchPage(listUrl, ctx, budget, { useCache: true, writeCache: true });
+        pages_scanned++; scanned.push(listUrl);
+        if (r1.ok) collect(parseZoomList(r1.html, listUrl));
+      }
+
+      // Pagination /page/2/
       for (let p = 2; p <= pagesMax; p++) {
-        if (budget.used >= budget.max || events.length >= fetchCap) break;
+        if (budget.used >= budget.max || events.length >= listCollectCap) break;
         const next = new URL(`page/${p}/`, listUrl).toString();
-        const r = await fetchPage(next, ctx, budget);
+        const r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(next);
         if (!r.ok) break;
         collect(parseZoomList(r.html, next));
       }
 
-      // ---- Filter by requested window (Date.._EndDate)
+      // Filter to requested date window (Date.._EndDate)
       const filtered = [];
       for (const e of events) {
         const s = parseYMD(e.Date);
@@ -66,24 +66,32 @@ export default {
         if (!s || !eEnd) continue;
         if (rangesOverlap(s, eEnd, start, end)) {
           filtered.push(e);
-          if (filtered.length >= fetchCap) break;
+          if (!enrich && filtered.length >= (groupTimes ? Math.min(limit * 3, 2000) : limit)) break;
         }
       }
 
-      // ---- Optional enrichment (detail pages) within strict budget
+      // Enrichment (details) — no cache
       let enrichedCount = 0;
       let detail_scanned = [];
       if (enrich && filtered.length && budget.used < budget.max) {
-        const remaining = Math.max(0, budget.max - budget.used);
-        const cap = Math.min(enrichMax, remaining);
-        if (cap > 0) {
-          const res = await enrichDetails(filtered, cap, ctx, budget);
-          enrichedCount = res.enriched;
-          detail_scanned = res.scanned;
+        const targets = filtered.filter(
+          e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
+        );
+        const cap = Math.min(enrichMax, Math.max(0, budget.max - budget.used));
+        for (const e of targets.slice(0, cap)) {
+          if (budget.used >= budget.max) break;
+          const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
+          if (!r.ok) continue;
+          detail_scanned.push(e.Link);
+          const info = parseZoomDetail(r.html, e.Date);
+          if (info.Payment !== "") e["Payment for Entry"] = info.Payment;
+          if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
+          if (info.Venue && !e.Venue) e.Venue = info.Venue;
+          if (info.Category && !e.Category) e.Category = info.Category;
+          enrichedCount++;
         }
       }
 
-      // ---- Group & finalize
       const finalized = groupTimes ? groupSameDayShowtimes(filtered) : filtered;
       const sliced = finalized.slice(0, limit);
 
@@ -104,7 +112,6 @@ export default {
       };
 
       if (wantRows) {
-        // 8 columns (no Image URL): Title, Date, Time, Venue, Category, Link, Payment for Entry, Source
         payload.rows = sliced.map(e => ({
           values: [
             e.Title || "",
@@ -124,17 +131,20 @@ export default {
       function collect(arr) {
         for (const e of arr) {
           events.push(e);
-          if (events.length >= fetchCap) break;
+          if (events.length >= listCollectCap) break;
         }
       }
-    } catch (err) {
-      return jserr(String(err && err.message ? err.message : err), 500);
+    } catch (e) {
+      return jserr(String(e && e.message ? e.message : e), 500);
     }
   }
 };
 
-/* ---------------- HTTP (budget-aware + cache) ---------------- */
-async function fetchPage(url, ctx, budget) {
+/* ---------------- HTTP: count ALL subrequests (ADR-0010) ---------------- */
+async function fetchPage(url, ctx, budget, opts = {}) {
+  const useCache   = opts.useCache   !== false; // default true
+  const writeCache = opts.writeCache !== false; // default true
+
   if (budget.used >= budget.max) return { ok: false, status: 0, html: "" };
 
   const cache = caches.default;
@@ -146,30 +156,35 @@ async function fetchPage(url, ctx, budget) {
     }
   });
 
-  const cached = await cache.match(req);
-  if (cached) return { ok: true, status: 200, html: await cached.text() };
-
-  // Reserve budget BEFORE network to prevent racing over the cap
-  if (++budget.used > budget.max) {
-    budget.used = budget.max;
-    return { ok: false, status: 0, html: "" };
+  // cache.match counts (+1)
+  if (useCache) {
+    if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+    budget.used++;
+    const cached = await cache.match(req);
+    if (cached) return { ok: true, status: 200, html: await cached.text() };
   }
 
+  // fetch counts (+1)
+  if (budget.used + 1 > budget.max) return { ok: false, status: 0, html: "" };
+  budget.used++;
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 20000);
 
   try {
     let res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
 
-    // Single retry for transient CF errors; retry also consumes budget
-    if (!res.ok && [520, 522, 523, 524].includes(res.status) && budget.used < budget.max) {
-      if (++budget.used <= budget.max) {
-        res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
-      }
+    // retry counts (+1)
+    if (!res.ok && [520, 522, 523, 524].includes(res.status) && (budget.used + 1) <= budget.max) {
+      budget.used++;
+      res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
     }
 
     const html = await res.text();
-    if (res.ok) {
+    if (!res.ok) return { ok: false, status: res.status, html };
+
+    // cache.put counts (+1) — skip on details
+    if (useCache && writeCache && (budget.used + 1) <= budget.max) {
+      budget.used++;
       const out = new Response(html, {
         headers: {
           "content-type": "text/html; charset=utf-8",
@@ -177,47 +192,40 @@ async function fetchPage(url, ctx, budget) {
         }
       });
       ctx && ctx.waitUntil(cache.put(req, out.clone()));
-      return { ok: true, status: res.status, html };
     }
-    return { ok: false, status: res.status, html };
-  } catch (_e) {
+
+    return { ok: true, status: 200, html };
+  } catch {
     return { ok: false, status: 0, html: "" };
   } finally {
     clearTimeout(to);
   }
 }
 
-/* ---------------- List parser (Zoom cards) ---------------- */
+/* ---------------- List parser (Zoom) ---------------- */
 function parseZoomList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // Anchor with title (canonical link)
   const reTitle = /<a\s+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<\/a>/gi;
-
   let m;
   while ((m = reTitle.exec(html)) !== null) {
     const href  = absUrl(baseUrl, (m[1] || "").trim());
     const title = text(m[2]);
     if (!title) continue;
 
-    // Local context
     const backStart = Math.max(0, m.index - 1500);
     const fwdEnd    = Math.min(html.length, m.index + 1500);
     const ctxStr    = html.slice(backStart, fwdEnd);
 
-    // Dates from wrapper data-attrs
     const dStart = lastMatch(ctxStr, /data-start-date="(20\d{2}-\d{2}-\d{2})"/gi) || "";
     const dEnd   = lastMatch(ctxStr, /data-end-date="(20\d{2}-\d{2}-\d{2})"/gi) || "";
 
-    // Time (one or more)
     const time = lastMatch(ctxStr, /<span>\s*20\d{2}-\d{2}-\d{2}\s*[—\-–]\s*([0-2]?\d:[0-5]\d)\s*<\/span>/gi) ||
                  lastMatch(ctxStr, /class="event-card__time"[^>]*>\s*([0-2]?\d:[0-5]\d)\s*</gi) || "";
 
-    // Venue
     const venue = lastMatch(ctxStr, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
 
-    // Category
     const category = lastMatch(ctxStr, /class="c-btn c-btn--primary"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
                      lastMatch(ctxStr, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
 
@@ -228,69 +236,38 @@ function parseZoomList(raw, baseUrl) {
       Venue: text(venue),
       Category: text(category),
       Link: href,
-      "Payment for Entry": detectPaymentList(ctxStr), // list-only: "No" or ""
+      "Payment for Entry": detectPaymentList(ctxStr),
       Source: "zoom.lublin.pl",
-      _EndDate: dEnd || dStart,  // ADR-0009: ensure present; default to Date
+      _EndDate: dEnd || dStart,
       _fp_url: urlPath(href),
       _fp_tdv: f_title_date_venue({ Title: title, Date: dStart, Venue: text(venue) })
     });
   }
-
   return out;
 }
 
-/* ---------------- Enrichment (detail pages) ---------------- */
-async function enrichDetails(list, cap, ctx, budget) {
-  const targets = list.filter(
-    e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
-  );
-
-  const scanned = [];
-  let enriched = 0;
-
-  for (const e of targets.slice(0, cap)) {
-    if (budget.used >= budget.max) break;
-
-    const r = await fetchPage(e.Link, ctx, budget);
-    if (!r.ok) continue;
-    scanned.push(e.Link);
-
-    const info = parseZoomDetail(r.html, e.Date);
-
-    if (info.Payment !== "") e["Payment for Entry"] = info.Payment;     // Yes/No/""
-    if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
-    if (info.Venue && !e.Venue) e.Venue = info.Venue;
-    if (info.Category && !e.Category) e.Category = info.Category;
-
-    enriched++;
-  }
-  return { enriched, scanned };
-}
-
-function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
+/* ---------------- Detail parser (Zoom) ---------------- */
+function parseZoomDetail(raw, forDate) {
   const html = normalizeHtml(raw);
 
-  // PAYMENT — full page inference, normalized
   const payment = detectPaymentPage(html);
 
-  // TIME(S) — from "Terminy" section like: <span>YYYY-MM-DD — HH:MM</span>
+  // times in "Terminy": <span>YYYY-MM-DD — HH:MM</span>
   const times = [];
   const reDT = /<span>\s*(20\d{2}-\d{2}-\d{2})\s*[—\-–]\s*([0-2]?\d):([0-5]\d)\s*<\/span>/gi;
   let m;
   while ((m = reDT.exec(html)) !== null) {
     const d = m[1];
-    const t = `${String(m[2]).padStart(2,"0")}:${m[3]}`;
+    const t = `${String(m[2]).padStart(2, "0")}:${m[3]}`;
     if (!forDate || d === forDate) times.push(t);
   }
   const time = Array.from(new Set(times)).sort().join(", ");
 
-  // VENUE — try single-event__place or button span near it
   const venue = text(
     lastMatch(html, /class="single-event__place"[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
     lastMatch(html, /class="single-event__place"[\s\S]*?class="c-btn[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
   );
 
-  // CATEGORY (optional on detail)
   const category = text(
     lastMatch(html, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
   );
@@ -298,28 +275,23 @@ function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
   return { Time: time, Venue: venue, Category: category, Payment: payment };
 }
 
-/* ---------------- Payment normalization (ADR-0007) ---------------- */
-// On list: only detect clearly free -> "No"; never force "Yes" on list
+/* ---------------- Payment normalization ---------------- */
 function detectPaymentList(block){
   const t = norm(block);
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
   return "";
 }
-// On detail: derive Yes/No with numeric-price conflict rule
 function detectPaymentPage(html){
   const t = norm(html);
   const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
   const hasPaid = /(platn|platny|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
-  if (hasFree && hasPaid) {
-    const numeric = /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t);
-    return numeric ? "Yes" : "No";
-  }
+  if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
 
-/* ---------------- Grouping & small utils ---------------- */
+/* ---------------- Grouping & helpers ---------------- */
 function groupSameDayShowtimes(list){
   const key = e => [e.Title, e.Date, e.Venue, e.Category, e.Link]
     .map(s => (s||"").toLowerCase()).join("|");
@@ -345,7 +317,7 @@ function mergeTimes(a, b){
   return Array.from(set).sort().join(", ");
 }
 
-/* ---------------- Generic helpers ---------------- */
+/* ---------------- Generic utils ---------------- */
 function ensureSlash(url){ return url.endsWith("/") ? url : (url + "/"); }
 function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
 function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
@@ -362,11 +334,10 @@ function decodeEntities(s){
   return (s||"")
     .replace(/&quot;|&#34;/g,'"').replace(/&apos;|&#39;/g,"'")
     .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
-    .replace(/&laquo;|&#171;/g,"«").replace(/&raquo;|&#187;/g,"»");
+    .replace(/&laquo;|&#171;/g,"«").replace(/&raquo;/g,"»");
 }
 function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
 function norm(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
-
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
 function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href; } }
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
