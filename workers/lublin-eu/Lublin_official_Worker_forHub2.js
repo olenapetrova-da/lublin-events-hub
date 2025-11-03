@@ -277,7 +277,9 @@ async function fetchPage(url, ctx, budget, opts = {}) {
 }
 
 //
-// ---------- Official list parser ----------
+// ---------- Official list parser (forward-only; firstMatch) ----------
+function firstMatch(str, re){ const m = re.exec(str); return m ? (m[1] || m[0]) : ""; }
+
 function parseOfficialList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
@@ -289,27 +291,33 @@ function parseOfficialList(raw, baseUrl) {
     const title = text(m[2]);
     if (!title) continue;
 
-    const start = Math.max(0, m.index - 2000);
-    const block = html.slice(start, Math.min(html.length, m.index + 2000));
+    // Only scan forward from the title anchor to avoid “previous card” bleed
+    const forward = html.slice(m.index, Math.min(html.length, m.index + 3000));
 
-    const dmy = lastMatch(block, /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})\s*<\/span>/gi) || "";
-    const iso = dmy ? dmy.split("-").reverse().join("-") : "";
+    // collect up to two dates (start/end) AFTER the title
+    const dates = [];
+    const reDate = /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})\s*<\/span>/gi;
+    let d; reDate.lastIndex = 0;
+    while ((d = reDate.exec(forward)) !== null && dates.length < 2) {
+      dates.push(d[1]);
+    }
+    const dStart = dates[0] || "";
+    const dEnd   = dates[1] || "";
 
-    const times = [];
-    const reTime = /class="[^"]*event-time[^"]*"[^>]*>\s*([0-9]{1,2}:[0-9]{2})\s*<\/span>/gi;
-    let tm; while ((tm = reTime.exec(block)) !== null) times.push(tm[1]);
-    const time = Array.from(new Set(times)).sort().join(", ");
+    const iso = dStart ? dStart.split("-").reverse().join("-") : "";
+    const isoEnd = dEnd ? dEnd.split("-").reverse().join("-") : iso;
 
+    // time, venue, category — take first occurrence AFTER the title
+    const time = firstMatch(forward, /class="[^"]*event-time[^"]*"[^>]*>\s*([0-9]{1,2}:[0-9]{2})\s*<\/span>/i) || "";
     const venue = text(
-      lastMatch(block, /class="[^"]*(?:event__place|place|lokalizacja)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/gi) ||
-      lastMatch(block, />\s*(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
-      lastMatch(block, />\s*(?:Miejsce|Lokalizacja)\s*:\s*([^<]+)/gi) || ""
+      firstMatch(forward, /class="[^"]*(?:event__place|place|lokalizacja)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/i) ||
+      firstMatch(forward, />\s*(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/i) ||
+      firstMatch(forward, />\s*(?:Miejsce|Lokalizacja)\s*:\s*([^<]+)/i) || ""
     );
-
     const category = text(
-      lastMatch(block, /class="[^"]*(?:event__category|category|tag)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/gi) ||
-      lastMatch(block, />\s*(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
-      lastMatch(block, />\s*(?:Kategoria|Category)\s*:\s*([^<]+)/gi) || ""
+      firstMatch(forward, /class="[^"]*(?:event__category|category|tag)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/i) ||
+      firstMatch(forward, />\s*(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/i) ||
+      firstMatch(forward, />\s*(?:Kategoria|Category)\s*:\s*([^<]+)/i) || ""
     );
 
     out.push({
@@ -319,9 +327,9 @@ function parseOfficialList(raw, baseUrl) {
       Venue: venue,
       Category: category,
       Link: href,
-      "Payment for Entry": detectPaymentList(block), // "No" or ""
+      "Payment for Entry": detectPaymentList(forward), // "No" or ""
       Source: "lublin.eu",
-      _EndDate: iso,
+      _EndDate: isoEnd,            // ensure present; default to Date if no end
       _fp_url: urlPath(href)
     });
   }
