@@ -25,3 +25,4 @@ Each source (e.g., lublin.eu, zoom.lublin.pl) has a list page (limited fields) a
 - ADR-0009 (_EndDate & Source)
 - ADR-0002 (taxonomy in Sheets)
 - ADR-0005 (raw → normalized model)
+- docs/specs/sources/zoom-lublin.md

@@ -26,3 +26,4 @@ Adapters MUST NOT:
 ## References
 - ADR-0002 (taxonomy in Sheets)
 - ADR-0006 (location & limits)
+- docs/specs/sources/zoom-lublin.md

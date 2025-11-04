@@ -22,3 +22,4 @@ Defaulting `_EndDate` in Apps Script reduces adapter complexity and keeps a sing
 - ADR-0004 (hub JSON mode for refresh)
 - ADR-0005 (raw → normalized model)
 - ADR-0006 (location & limits)
+- docs/specs/sources/zoom-lublin.md
