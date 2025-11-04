@@ -23,7 +23,6 @@ export default {
       const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
       const budget     = { used: 0, max: userBudget || 48 };
 
-      // Optional explicit list URL
       const listUrl = ensureSlash(q.get("url") || "https://zoom.lublin.pl/wydarzenia/");
 
       if (!startISO) return jserr("Missing ?date=YYYY-MM-DD", 400);
@@ -66,7 +65,7 @@ export default {
         }
       }
 
-      // ---- Optional enrichment (detail pages) w/ strict budget, no cache
+      // ---- Optional enrichment (detail pages)
       let enrichedCount = 0;
       let detail_scanned = [];
       if (enrich && filtered.length && budget.used < budget.max) {
@@ -190,50 +189,46 @@ async function fetchPage(url, ctx, budget, opts = {}) {
   }
 }
 
-/* ---------------- List parser (Zoom cards) ---------------- */
+/* ---------------- List parser (Zoom cards) — DOM-precise ---------------- */
 function parseZoomList(raw) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // We find the title link, then recover the nearest wrapper block just before it
-  const reTitle = /<a\s+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<\/a>/gi;
+  // iterate per <div class="event-card"> ... </div>
+  let i = 0;
+  while (true) {
+    const start = html.indexOf('<div class="event-card"', i);
+    if (start < 0) break;
+    const next  = html.indexOf('<div class="event-card"', start + 1);
+    const block = html.slice(start, next > 0 ? next : html.length);
+    i = next > 0 ? next : html.length;
 
-  let m;
-  while ((m = reTitle.exec(html)) !== null) {
-    const href  = (m[1] || "").trim();
-    const title = text(m[2]);
-    if (!title) continue;
-
-    // Find the nearest wrapper opening for THIS card, slice a forward block
-    const wstart = html.lastIndexOf('<div class="event-card-wrapper', m.index);
-    const blockStart = Math.max(0, wstart >= 0 ? wstart : m.index - 800);
-    const block = html.slice(blockStart, Math.min(html.length, blockStart + 4000));
-
-    // Dates from wrapper data-attrs (preferred & robust)
-    const dStart = firstMatch(block, /data-start-date="(20\d{2}-\d{2}-\d{2})"/i) || "";
-    const dEnd   = firstMatch(block, /data-end-date="(20\d{2}-\d{2}-\d{2})"/i) || "";
-
-    // Time(s)
-    const time = lastMatch(block, /<span>\s*20\d{2}-\d{2}-\d{2}\s*[—\-–]\s*([0-2]?\d:[0-5]\d)\s*<\/span>/gi) ||
-                 lastMatch(block, /class="event-card__time"[^>]*>\s*([0-2]?\d:[0-5]\d)\s*</gi) || "";
+    // Title + Link
+    const mTitle = /<a[^>]+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>/i.exec(block);
+    if (!mTitle) continue;
+    const href  = (mTitle[1] || "").trim();
+    const title = text(mTitle[2]);
 
     // Venue
-    const venue = lastMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
+    const venue = text(firstMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
 
     // Category
-    const category = lastMatch(block, /class="c-btn c-btn--primary"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
-                     lastMatch(block, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
+    const category = text(firstMatch(block, /<div\s+class="event-card__data-right"[\s\S]*?<a[^>]*class="c-btn[^"]*c-btn--primary[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/i) || "");
+
+    // Date/Time from .event-card__dates span
+    const dtText = text(firstMatch(block, /<div\s+class="event-card__dates"[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
+    const { Date, Time, End } = parseListDateTime(dtText);
 
     out.push({
-      Title: text(title),
-      Date: dStart,
-      Time: text(time),
-      Venue: text(venue),
-      Category: text(category),
+      Title: title,
+      Date: Date || "",
+      Time: Time || "",
+      Venue: venue || "",
+      Category: category || "",
       Link: href,
       "Payment for Entry": detectPaymentList(block), // list-only: "No" or ""
       Source: "zoom.lublin.pl",
-      _EndDate: dEnd || dStart,  // ADR-0009: ensure present; default to Date
+      _EndDate: End || Date || "",  // ADR-0009: ensure present; default to Date
       _fp_url: urlPath(href)
     });
   }
@@ -241,7 +236,29 @@ function parseZoomList(raw) {
   return out;
 }
 
-/* ---------------- Enrichment (detail pages) ---------------- */
+// Parse strings like:
+// "2025-11-05 — 09:30, 11:30"
+// "2025-11-05 — 09:30"
+// "2025-11-05 — 2025-11-12"
+function parseListDateTime(s){
+  const t = s.replace(/[‐-‒–—]/g, "-");
+  let Date = "", Time = "", End = "";
+  // Range
+  let m = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(t);
+  if (m) return { Date: m[1], Time: "", End: m[2] };
+
+  // Date — times
+  m = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(.+)\s*$/.exec(t);
+  if (m) {
+    Date = m[1];
+    const times = Array.from(new Set((m[2].match(/\b([0-2]?\d:[0-5]\d)\b/g) || []).map(x => x.trim()))).sort();
+    Time = times.join(", ");
+    End = Date;
+  }
+  return { Date, Time, End };
+}
+
+/* ---------------- Enrichment (detail pages) — DOM-precise ---------------- */
 async function enrichDetails(list, cap, ctx, budget) {
   const targets = list.filter(
     e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category || !e._EndDate
@@ -264,8 +281,8 @@ async function enrichDetails(list, cap, ctx, budget) {
     if (info.Payment === "Yes" && e["Payment for Entry"] !== "Yes") e["Payment for Entry"] = "Yes";
     else if (info.Payment === "No" && !e["Payment for Entry"])      e["Payment for Entry"] = "No";
 
-    if (info.Time)            e.Time      = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
-    if (info.Venue && !e.Venue)     e.Venue     = info.Venue;
+    if (info.Time)                 e.Time      = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
+    if (info.Venue && !e.Venue)    e.Venue     = info.Venue;
     if (info.Category && !e.Category) e.Category  = info.Category;
 
     if (info.EndDate) {
@@ -280,38 +297,40 @@ async function enrichDetails(list, cap, ctx, budget) {
 function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
   const html = normalizeHtml(raw);
 
-  // PAYMENT — full page inference, normalized
-  const Payment = detectPaymentPage(html);
+  // --- blocks ---
+  const datesBlock   = sliceFirstBlock(html, "single-event__dates");
+  const placeBlock   = sliceFirstBlock(html, "single-event__place");
+  const catsBlock    = sliceFirstBlock(html, "single-event__categories");
+  const ticketsBlock = sliceFirstBlock(html, "single-event__tickets");
 
-  // TIMES — from "Terminy": <span>YYYY-MM-DD — HH:MM</span>
+  // PAYMENT — read tickets block first (fallback to page-level if missing)
+  const Payment = detectPaymentFromTickets(ticketsBlock) || detectPaymentPage(html);
+
+  // TIMES — from dates block, rows like: <span>YYYY-MM-DD — HH:MM</span>
   const times = [];
   const datesSeen = new Set();
-  const reDT = /<span>\s*(20\d{2}-\d{2}-\d{2})\s*[—\-–]\s*([0-2]?\d):([0-5]\d)\s*<\/span>/gi;
+  const reSpan = /<span>([\s\S]*?)<\/span>/gi;
   let m;
-  while ((m = reDT.exec(html)) !== null) {
-    const d = m[1];
-    const t = `${String(m[2]).padStart(2,"0")}:${m[3]}`;
-    datesSeen.add(d);
-    if (!forDate || d === forDate) times.push(t);
+  while ((m = reSpan.exec(datesBlock)) !== null) {
+    const s = text(m[1]).replace(/[‐-‒–—]/g, "-");
+    const t1 = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*([0-2]?\d:[0-5]\d)\s*$/.exec(s);
+    const t2 = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(s);
+    if (t1) {
+      const d = t1[1], hh = t1[2];
+      datesSeen.add(d);
+      if (!forDate || d === forDate) times.push(hh);
+    } else if (t2) {
+      datesSeen.add(t2[1]); datesSeen.add(t2[2]);
+    }
   }
   const Time = Array.from(new Set(times)).sort().join(", ");
+  const EndDate = datesSeen.size ? Array.from(datesSeen).sort().slice(-1)[0] : "";
 
   // VENUE
-  const Venue = text(
-    lastMatch(html, /class="single-event__place"[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
-    lastMatch(html, /class="single-event__place"[\s\S]*?class="c-btn[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
-  );
+  const Venue = text(firstMatch(placeBlock, /<span>([\s\S]*?)<\/span>/i) || "");
 
-  // CATEGORY (optional on detail)
-  const Category = text(
-    lastMatch(html, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
-  );
-
-  // END DATE: choose the max date mentioned in schedule, if any
-  let EndDate = "";
-  if (datesSeen.size) {
-    EndDate = Array.from(datesSeen).sort().slice(-1)[0]; // max YYYY-MM-DD
-  }
+  // CATEGORY
+  const Category = text(firstMatch(catsBlock, /class="c-btn[^"]*c-btn--primary[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/i) || "");
 
   return { Time, Venue, Category, Payment, EndDate };
 }
@@ -323,23 +342,25 @@ function detectPaymentList(block){
   return (/(?:\b|>)(wstep wolny|bezplatn|darmow|gratis|nieodplat)(?:\b|<)/.test(t)) ? "No" : "";
 }
 
-// On detail: derive Yes/No with numeric-price rule
-function detectPaymentPage(html){
-  const t = norm(html);
+// Prefer tickets block (detail)
+function detectPaymentFromTickets(block){
+  const t = norm(text(block || ""));
   const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
-  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
+  const hasPaid = /(platn|platny|bilet|bilety|wejsciow|oplata|cena|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
   if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
 
-function normalizePaymentExact(v){
-  const t = norm(v);
-  // FREE first
-  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
-  // PAID second
-  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena)/.test(t)) return "Yes";
+// Fallback: page-level heuristic
+function detectPaymentPage(html){
+  const t = norm(text(html || ""));
+  const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
+  const hasPaid = /(platn|platny|bilet|bilety|wejsciow|oplata|cena|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
+  if (hasFree && !hasPaid) return "No";
+  if (hasPaid && !hasFree) return "Yes";
+  if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
 
@@ -371,6 +392,13 @@ function mergeTimes(a, b){
 
 /* ---------------- Generic helpers ---------------- */
 function ensureSlash(url){ return url.endsWith("/") ? url : (url + "/"); }
+function sliceFirstBlock(html, className){
+  const i = html.indexOf(className);
+  if (i < 0) return "";
+  const open = html.lastIndexOf("<div", i);
+  const start = open >= 0 ? open : i;
+  return html.slice(start, start + 4000); // local slice is enough & cheap
+}
 function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
 function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
 function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
