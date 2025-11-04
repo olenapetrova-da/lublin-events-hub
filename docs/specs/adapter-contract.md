@@ -54,3 +54,6 @@
   Otherwise continue and return partial results.
 
 - **Deterministic order.** Emit items in stable order (date/time asc) so re-runs are idempotent and downstream dedupe is reliable.
+
+## References
+- docs/specs/sources/zoom-lublin.md
