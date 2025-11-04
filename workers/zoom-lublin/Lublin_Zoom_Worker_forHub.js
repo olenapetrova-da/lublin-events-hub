@@ -1,6 +1,5 @@
-// Lublin_Zoom_Worker_forHub.js — zoom.lublin.pl adapter (budget-safe + optional enrichment)
-// ADRs: 0005 (raw→normalized), 0006 (enrichment in adapters), 0007 (Payment Yes/No/""),
-//       0008 (fields to enrich), 0009 (_EndDate present)
+// Lublin_Zoom_Worker_forHub.js — zoom.lublin.pl adapter (budget-safe + enrichment)
+// ADRs: 0005, 0006, 0007, 0008, 0009, 0010
 
 export default {
   async fetch(request, env, ctx) {
@@ -20,14 +19,9 @@ export default {
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
-      // ---- Subrequest budget (HARD CAP) ----
-      // Zoom listing isn't per-day; we paginate N list pages for the whole range.
-      const listPagesBudget  = pagesMax;                    // page/1..pagesMax
-      const enrichBudgetHint = enrich ? Math.min(enrichMax, 15) : 0;
-      const headroom         = 6;                           // retry/redirect/slop
-      const userBudget       = clamp(int(q.get("budget"), 0), 0, 48);
-      const budgetMax        = Math.min(48, userBudget || (listPagesBudget + enrichBudgetHint + headroom));
-      const budget           = { used: 0, max: budgetMax };
+      // ---- Subrequest budget (ADR-0010) ----
+      const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
+      const budget     = { used: 0, max: userBudget || 48 };
 
       // Optional explicit list URL
       const listUrl = ensureSlash(q.get("url") || "https://zoom.lublin.pl/wydarzenia/");
@@ -40,22 +34,24 @@ export default {
       const scanned = [];
       let pages_scanned = 0;
 
-      // ---- Fetch page 1
+      // ---- Crawl list pages (budget-aware)
       const events = [];
       const fetchCap = groupTimes ? Math.min(limit * 3, 2000) : limit;
+      const listCollectCap = enrich ? Math.max(enrichMax * 10, 100) : fetchCap;
 
-      const r1 = await fetchPage(listUrl, ctx, budget);
+      // page 1
+      let r = await fetchPage(listUrl, ctx, budget, { useCache: true, writeCache: true });
       pages_scanned++; scanned.push(listUrl);
-      if (r1.ok) collect(parseZoomList(r1.html, listUrl));
+      if (r.ok) collect(parseZoomList(r.html));
 
-      // ---- Paginate: /wydarzenia/page/2/
+      // next pages: /wydarzenia/page/2/
       for (let p = 2; p <= pagesMax; p++) {
-        if (budget.used >= budget.max || events.length >= fetchCap) break;
+        if (budget.used >= budget.max || events.length >= listCollectCap) break;
         const next = new URL(`page/${p}/`, listUrl).toString();
-        const r = await fetchPage(next, ctx, budget);
+        r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(next);
         if (!r.ok) break;
-        collect(parseZoomList(r.html, next));
+        collect(parseZoomList(r.html));
       }
 
       // ---- Filter by requested window (Date.._EndDate)
@@ -70,7 +66,7 @@ export default {
         }
       }
 
-      // ---- Optional enrichment (detail pages) within strict budget
+      // ---- Optional enrichment (detail pages) w/ strict budget, no cache
       let enrichedCount = 0;
       let detail_scanned = [];
       if (enrich && filtered.length && budget.used < budget.max) {
@@ -124,7 +120,7 @@ export default {
       function collect(arr) {
         for (const e of arr) {
           events.push(e);
-          if (events.length >= fetchCap) break;
+          if (events.length >= listCollectCap) break;
         }
       }
     } catch (err) {
@@ -133,9 +129,11 @@ export default {
   }
 };
 
-/* ---------------- HTTP (budget-aware + cache) ---------------- */
-async function fetchPage(url, ctx, budget) {
-  if (budget.used >= budget.max) return { ok: false, status: 0, html: "" };
+/* ---------------- HTTP (budget-aware + cache counting) ---------------- */
+async function fetchPage(url, ctx, budget, opts = {}) {
+  const useCache   = opts.useCache   !== false; // default true
+  const writeCache = opts.writeCache !== false; // default true
+  if (budget.used >= budget.max) return { ok:false, status:0, html:"" };
 
   const cache = caches.default;
   const req = new Request(url, {
@@ -146,30 +144,35 @@ async function fetchPage(url, ctx, budget) {
     }
   });
 
-  const cached = await cache.match(req);
-  if (cached) return { ok: true, status: 200, html: await cached.text() };
-
-  // Reserve budget BEFORE network to prevent racing over the cap
-  if (++budget.used > budget.max) {
-    budget.used = budget.max;
-    return { ok: false, status: 0, html: "" };
+  // cache.match counts (+1)
+  if (useCache) {
+    if (budget.used + 1 > budget.max) return { ok:false, status:0, html:"" };
+    budget.used++;
+    const cached = await cache.match(req);
+    if (cached) return { ok:true, status:200, html: await cached.text() };
   }
 
+  // fetch counts (+1)
+  if (budget.used + 1 > budget.max) return { ok:false, status:0, html:"" };
+  budget.used++;
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 20000);
 
   try {
     let res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
 
-    // Single retry for transient CF errors; retry also consumes budget
-    if (!res.ok && [520, 522, 523, 524].includes(res.status) && budget.used < budget.max) {
-      if (++budget.used <= budget.max) {
-        res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
-      }
+    // retry counts (+1)
+    if (!res.ok && [520,522,523,524].includes(res.status) && (budget.used + 1) <= budget.max) {
+      budget.used++;
+      res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
     }
 
     const html = await res.text();
-    if (res.ok) {
+    if (!res.ok) return { ok:false, status:res.status, html };
+
+    // cache.put counts (+1)
+    if (useCache && writeCache && (budget.used + 1) <= budget.max) {
+      budget.used++;
       const out = new Response(html, {
         headers: {
           "content-type": "text/html; charset=utf-8",
@@ -177,49 +180,49 @@ async function fetchPage(url, ctx, budget) {
         }
       });
       ctx && ctx.waitUntil(cache.put(req, out.clone()));
-      return { ok: true, status: res.status, html };
     }
-    return { ok: false, status: res.status, html };
+
+    return { ok:true, status:200, html };
   } catch (_e) {
-    return { ok: false, status: 0, html: "" };
+    return { ok:false, status:0, html:"" };
   } finally {
     clearTimeout(to);
   }
 }
 
 /* ---------------- List parser (Zoom cards) ---------------- */
-function parseZoomList(raw, baseUrl) {
+function parseZoomList(raw) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // Anchor with title (canonical link)
+  // We find the title link, then recover the nearest wrapper block just before it
   const reTitle = /<a\s+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<\/a>/gi;
 
   let m;
   while ((m = reTitle.exec(html)) !== null) {
-    const href  = absUrl(baseUrl, (m[1] || "").trim());
+    const href  = (m[1] || "").trim();
     const title = text(m[2]);
     if (!title) continue;
 
-    // Local context
-    const backStart = Math.max(0, m.index - 1500);
-    const fwdEnd    = Math.min(html.length, m.index + 1500);
-    const ctxStr    = html.slice(backStart, fwdEnd);
+    // Find the nearest wrapper opening for THIS card, slice a forward block
+    const wstart = html.lastIndexOf('<div class="event-card-wrapper', m.index);
+    const blockStart = Math.max(0, wstart >= 0 ? wstart : m.index - 800);
+    const block = html.slice(blockStart, Math.min(html.length, blockStart + 4000));
 
-    // Dates from wrapper data-attrs
-    const dStart = lastMatch(ctxStr, /data-start-date="(20\d{2}-\d{2}-\d{2})"/gi) || "";
-    const dEnd   = lastMatch(ctxStr, /data-end-date="(20\d{2}-\d{2}-\d{2})"/gi) || "";
+    // Dates from wrapper data-attrs (preferred & robust)
+    const dStart = firstMatch(block, /data-start-date="(20\d{2}-\d{2}-\d{2})"/i) || "";
+    const dEnd   = firstMatch(block, /data-end-date="(20\d{2}-\d{2}-\d{2})"/i) || "";
 
-    // Time (one or more)
-    const time = lastMatch(ctxStr, /<span>\s*20\d{2}-\d{2}-\d{2}\s*[—\-–]\s*([0-2]?\d:[0-5]\d)\s*<\/span>/gi) ||
-                 lastMatch(ctxStr, /class="event-card__time"[^>]*>\s*([0-2]?\d:[0-5]\d)\s*</gi) || "";
+    // Time(s)
+    const time = lastMatch(block, /<span>\s*20\d{2}-\d{2}-\d{2}\s*[—\-–]\s*([0-2]?\d:[0-5]\d)\s*<\/span>/gi) ||
+                 lastMatch(block, /class="event-card__time"[^>]*>\s*([0-2]?\d:[0-5]\d)\s*</gi) || "";
 
     // Venue
-    const venue = lastMatch(ctxStr, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
+    const venue = lastMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
 
     // Category
-    const category = lastMatch(ctxStr, /class="c-btn c-btn--primary"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
-                     lastMatch(ctxStr, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
+    const category = lastMatch(block, /class="c-btn c-btn--primary"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
+                     lastMatch(block, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/gi) || "";
 
     out.push({
       Title: text(title),
@@ -228,11 +231,10 @@ function parseZoomList(raw, baseUrl) {
       Venue: text(venue),
       Category: text(category),
       Link: href,
-      "Payment for Entry": detectPaymentList(ctxStr), // list-only: "No" or ""
+      "Payment for Entry": detectPaymentList(block), // list-only: "No" or ""
       Source: "zoom.lublin.pl",
       _EndDate: dEnd || dStart,  // ADR-0009: ensure present; default to Date
-      _fp_url: urlPath(href),
-      _fp_tdv: f_title_date_venue({ Title: title, Date: dStart, Venue: text(venue) })
+      _fp_url: urlPath(href)
     });
   }
 
@@ -242,7 +244,7 @@ function parseZoomList(raw, baseUrl) {
 /* ---------------- Enrichment (detail pages) ---------------- */
 async function enrichDetails(list, cap, ctx, budget) {
   const targets = list.filter(
-    e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
+    e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category || !e._EndDate
   );
 
   const scanned = [];
@@ -251,16 +253,24 @@ async function enrichDetails(list, cap, ctx, budget) {
   for (const e of targets.slice(0, cap)) {
     if (budget.used >= budget.max) break;
 
-    const r = await fetchPage(e.Link, ctx, budget);
+    // Skip cache for details to preserve budget for real content
+    const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
     if (!r.ok) continue;
     scanned.push(e.Link);
 
     const info = parseZoomDetail(r.html, e.Date);
 
-    if (info.Payment !== "") e["Payment for Entry"] = info.Payment;     // Yes/No/""
-    if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
-    if (info.Venue && !e.Venue) e.Venue = info.Venue;
-    if (info.Category && !e.Category) e.Category = info.Category;
+    // Payment: Yes overrides No/blank; No fills blanks only
+    if (info.Payment === "Yes" && e["Payment for Entry"] !== "Yes") e["Payment for Entry"] = "Yes";
+    else if (info.Payment === "No" && !e["Payment for Entry"])      e["Payment for Entry"] = "No";
+
+    if (info.Time)            e.Time      = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
+    if (info.Venue && !e.Venue)     e.Venue     = info.Venue;
+    if (info.Category && !e.Category) e.Category  = info.Category;
+
+    if (info.EndDate) {
+      if (!e._EndDate || info.EndDate > e._EndDate) e._EndDate = info.EndDate;
+    }
 
     enriched++;
   }
@@ -271,61 +281,67 @@ function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
   const html = normalizeHtml(raw);
 
   // PAYMENT — full page inference, normalized
-  const payment = detectPaymentPage(html);
+  const Payment = detectPaymentPage(html);
 
-  // TIME(S) — from "Terminy" section like: <span>YYYY-MM-DD — HH:MM</span>
+  // TIMES — from "Terminy": <span>YYYY-MM-DD — HH:MM</span>
   const times = [];
+  const datesSeen = new Set();
   const reDT = /<span>\s*(20\d{2}-\d{2}-\d{2})\s*[—\-–]\s*([0-2]?\d):([0-5]\d)\s*<\/span>/gi;
   let m;
   while ((m = reDT.exec(html)) !== null) {
     const d = m[1];
     const t = `${String(m[2]).padStart(2,"0")}:${m[3]}`;
+    datesSeen.add(d);
     if (!forDate || d === forDate) times.push(t);
   }
-  const time = Array.from(new Set(times)).sort().join(", ");
+  const Time = Array.from(new Set(times)).sort().join(", ");
 
-  // VENUE — try single-event__place or button span near it
-  const venue = text(
+  // VENUE
+  const Venue = text(
     lastMatch(html, /class="single-event__place"[\s\S]*?<span>([\s\S]*?)<\/span>/gi) ||
     lastMatch(html, /class="single-event__place"[\s\S]*?class="c-btn[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
   );
 
   // CATEGORY (optional on detail)
-  const category = text(
+  const Category = text(
     lastMatch(html, /https:\/\/zoom\.lublin\.pl\/gatunek\/[^"]+"[^>]*>\s*<span>([\s\S]*?)<\/span>/gi) || ""
   );
 
-  return { Time: time, Venue: venue, Category: category, Payment: payment };
+  // END DATE: choose the max date mentioned in schedule, if any
+  let EndDate = "";
+  if (datesSeen.size) {
+    EndDate = Array.from(datesSeen).sort().slice(-1)[0]; // max YYYY-MM-DD
+  }
+
+  return { Time, Venue, Category, Payment, EndDate };
 }
 
 /* ---------------- Payment normalization (ADR-0007) ---------------- */
-// On list: only detect clearly free -> "No"; never force "Yes" on list
+// On list: only detect clearly FREE -> "No"; never force "Yes" on list
 function detectPaymentList(block){
   const t = norm(block);
-  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
-  return "";
+  return (/(?:\b|>)(wstep wolny|bezplatn|darmow|gratis|nieodplat)(?:\b|<)/.test(t)) ? "No" : "";
 }
-// On detail: derive Yes/No with numeric-price conflict rule
+
+// On detail: derive Yes/No with numeric-price rule
 function detectPaymentPage(html){
   const t = norm(html);
   const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
-  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
+  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
   if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
 
-
 function normalizePaymentExact(v){
   const t = norm(v);
   // FREE first
   if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
-  // then PAID (also tolerate "patny" typos)
-  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
+  // PAID second
+  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena)/.test(t)) return "Yes";
   return "";
 }
-
 
 /* ---------------- Grouping & small utils ---------------- */
 function groupSameDayShowtimes(list){
@@ -389,10 +405,9 @@ function norm(s){
 }
 
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
+function firstMatch(str, re){ re.lastIndex=0; const m=re.exec(str); return m ? (m[1] || m[0]) : ""; }
 function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href; } }
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-function normalizeForKey(s){ return text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
-function f_title_date_venue(e){ return `${normalizeForKey(e.Title)}|${e.Date}|${normalizeForKey(e.Venue)}`; }
 
 function json(obj,status=200){
   return new Response(JSON.stringify(obj), {

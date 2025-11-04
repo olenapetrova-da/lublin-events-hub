@@ -1,3 +1,4 @@
+
 // lublin-events-hub — Orchestrator for multiple adapters (bindings preferred, HTTP fallback)
 // Contract: adapters return JSON with events[] when sheet=0 (default). Hub dedupes + caps.
 // Sheet mode (sheet=1) returns rows[] with 8 columns (NO Image URL): 

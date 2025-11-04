@@ -6,7 +6,7 @@
 // - No "Image URL"; Payment normalized to Yes/No/""
 
 //
-// ---------- define the small response helpers FIRST (fixes TS “Cannot find name”) ----------
+// ---------- response helpers ----------
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -21,7 +21,7 @@ function jserr(msg, status = 400) {
 }
 
 //
-// ---------- tiny utils (declared early; safe for TS) ----------
+// ---------- tiny utils ----------
 function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
 function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
 function clamp(n,lo,hi){ return Math.max(lo, Math.min(hi,n)); }
@@ -32,6 +32,7 @@ function parseYMD(s){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||""); return m?
 function toDMY(d){ return `${pad(d.getUTCDate())}-${pad(d.getUTCMonth()+1)}-${d.getUTCFullYear()}`; }
 function parseFromUrl(u){ const m=/\/(\d{2})-(\d{2})-(\d{4}),dzien\.html$/i.exec(u||""); return m?new Date(Date.UTC(+m[3],+m[2]-1,+m[1])):null; }
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
+function firstMatch(str, re){ re.lastIndex = 0; const m = re.exec(str); return m ? (m[1] || m[0]) : ""; }
 function absUrl(base, href){ try { return new URL(href, base).toString(); } catch { return href || ""; } }
 function normalizeHtml(s){ return (s||"").replace(/\r/g,"").replace(/\t/g," ").replace(/&nbsp;/g," ").replace(/[‐-‒–—]/g,"—"); }
 function stripTags(s){ return (s||"").replace(/<[^>]*>/g," "); }
@@ -43,7 +44,7 @@ function decodeEntities(s){
     .replace(/&lt;/g,"<")
     .replace(/&gt;/g,">")
     .replace(/&laquo;|&#171;/g,"«")
-    .replace(/&raquo;/g,"»");
+    .replace(/&raquo;|&#187;/g,"»");
 }
 function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
 function norm(s){
@@ -59,9 +60,7 @@ function norm(s){
     .replace(/[ęĘ]/g,"e")
     .toLowerCase();
 }
-
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-
 function mergeTimes(a,b){
   const arr = s => (s||"").split(",").map(x => x.trim()).filter(Boolean);
   const set = new Set([...arr(a), ...arr(b)]);
@@ -146,7 +145,7 @@ export default {
       let enrich_scanned = [];
       if (enrich && events.length && budget.used < budget.max) {
         const targets = events.filter(e =>
-          !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category
+          !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category || !e._EndDate
         );
         const cap = Math.min(enrichMax, Math.max(0, budget.max - budget.used));
         for (const e of targets.slice(0, cap)) {
@@ -160,6 +159,8 @@ export default {
           if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
           if (info.Venue && !e.Venue) e.Venue = info.Venue;
           if (info.Category && !e.Category) e.Category = info.Category;
+          if (info.EndDate) e._EndDate = info.EndDate;          // prefer detail end date
+          if (info.StartDate && !e.Date) e.Date = info.StartDate; // fill if list missed date
           enrichedCount++;
         }
       }
@@ -277,9 +278,7 @@ async function fetchPage(url, ctx, budget, opts = {}) {
 }
 
 //
-// ---------- Official list parser (forward-only; firstMatch) ----------
-function firstMatch(str, re){ const m = re.exec(str); return m ? (m[1] || m[0]) : ""; }
-
+// ---------- Official list parser (forward-only; first two dates AFTER title) ----------
 function parseOfficialList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
@@ -291,23 +290,18 @@ function parseOfficialList(raw, baseUrl) {
     const title = text(m[2]);
     if (!title) continue;
 
-    // Only scan forward from the title anchor to avoid “previous card” bleed
-    const forward = html.slice(m.index, Math.min(html.length, m.index + 3000));
+    // scan only FORWARD from the title to avoid previous-card bleed
+    const forward = html.slice(m.index, Math.min(html.length, m.index + 4000));
 
-    // collect up to two dates (start/end) AFTER the title
+    // up to two dates AFTER the title (start, end)
     const dates = [];
     const reDate = /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})\s*<\/span>/gi;
-    let d; reDate.lastIndex = 0;
-    while ((d = reDate.exec(forward)) !== null && dates.length < 2) {
-      dates.push(d[1]);
-    }
-    const dStart = dates[0] || "";
-    const dEnd   = dates[1] || "";
+    let dd; reDate.lastIndex = 0;
+    while ((dd = reDate.exec(forward)) !== null && dates.length < 2) dates.push(dd[1]);
+    const isoStart = dates[0] ? dates[0].split('-').reverse().join('-') : '';
+    const isoEnd   = dates[1] ? dates[1].split('-').reverse().join('-') : isoStart;
 
-    const iso = dStart ? dStart.split("-").reverse().join("-") : "";
-    const isoEnd = dEnd ? dEnd.split("-").reverse().join("-") : iso;
-
-    // time, venue, category — take first occurrence AFTER the title
+    // time, venue, category — first occurrence AFTER title
     const time = firstMatch(forward, /class="[^"]*event-time[^"]*"[^>]*>\s*([0-9]{1,2}:[0-9]{2})\s*<\/span>/i) || "";
     const venue = text(
       firstMatch(forward, /class="[^"]*(?:event__place|place|lokalizacja)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/i) ||
@@ -322,14 +316,14 @@ function parseOfficialList(raw, baseUrl) {
 
     out.push({
       Title: title,
-      Date: iso,
+      Date: isoStart,
       Time: time,
       Venue: venue,
       Category: category,
       Link: href,
       "Payment for Entry": detectPaymentList(forward), // "No" or ""
       Source: "lublin.eu",
-      _EndDate: isoEnd,            // ensure present; default to Date if no end
+      _EndDate: isoEnd,
       _fp_url: urlPath(href)
     });
   }
@@ -337,28 +331,32 @@ function parseOfficialList(raw, baseUrl) {
 }
 
 //
-// ---------- Official detail parser ----------
+// ---------- Official detail parser (prefer detail end date) ----------
 function parseOfficialDetail(raw) {
   const html = normalizeHtml(raw);
 
+  // Time
   const t1 =
     labelValue(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
     labelBlock(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
     lastMatch(html, /(?:Godzina|Godzina rozpoczecia|Godzina rozpoczęcia|Godz\.)[^<]{0,80}?>\s*([0-9]{1,2}:[0-9]{2})/gi) ||
     lastMatch(html, /(?:Godzina|Godz\.)\s*:?:?\s*([0-9]{1,2}:[0-9]{2})/gi) || "";
 
+  // Venue
   const v1 =
     labelValue(html, '(?:Miejsce|Lokalizacja)') ||
     labelBlock(html, '(?:Miejsce|Lokalizacja)') ||
     lastMatch(html, /(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
     lastMatch(html, /class="[^"]*(?:place|lokalizacja|event__place)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/gi) || "";
 
+  // Category
   const c1 =
     labelValue(html, '(?:Kategoria|Category)') ||
     labelBlock(html, '(?:Kategoria|Category)') ||
     lastMatch(html, /(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/gi) ||
     lastMatch(html, /class="[^"]*(?:category|event__category)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/gi) || "";
 
+  // Payment
   const lbl =
     labelBlock(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
     labelValue(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
@@ -367,37 +365,37 @@ function parseOfficialDetail(raw) {
   let payment = "";
   if (lbl) payment = normalizePaymentExact(lbl); else payment = detectPaymentPage(html);
 
-  return { Time: t1, Venue: text(v1), Category: text(c1), Payment: payment };
+  // Dates from detail (prefer EndDate)
+  const dStart = firstMatch(html, />\s*Data\s*rozpoc(?:z|ż)ęcia\s*:\s*<[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})/i);
+  const dEnd   = firstMatch(html, />\s*Data\s*zako(?:ń|n)czenia\s*:\s*<[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})/i);
+  const StartDate = dStart ? dStart.split('-').reverse().join('-') : "";
+  const EndDate   = dEnd   ? dEnd.split('-').reverse().join('-')   : "";
+
+  return { Time: t1, Venue: text(v1), Category: text(c1), Payment: payment, StartDate, EndDate };
 }
 
 //
-// ---------- Payment normalization (incl. normalizePaymentExact) ----------
+// ---------- Payment normalization ----------
 function detectPaymentList(block){
   const t = norm(block);
-  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
+  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No";
   return "";
 }
-
 function detectPaymentPage(html){
   const t = norm(html);
-  const hasFree = /(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t);
-  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
+  const hasFree = /(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t);
+  const hasPaid = /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|\b\d+[.,]?\d*\s*(zl|pln)\b)/.test(t);
   if (hasFree && !hasPaid) return "No";
   if (hasPaid && !hasFree) return "Yes";
   if (hasFree && hasPaid) return /\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) ? "Yes" : "No";
   return "";
 }
-
 function normalizePaymentExact(v){
   const t = norm(v);
-  // FREE first
-  if (/(wstep wolny|bezplatn|darmow|gratis|free|nieodplat)/.test(t)) return "No";
-  // then PAID (also tolerate "patny" typos)
-  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena|pln|zl)/.test(t)) return "Yes";
+  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No"; // FREE first
+  if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena)/.test(t)) return "Yes";
   return "";
 }
-
-
 
 //
 // ---------- label helpers & grouping ----------
@@ -435,6 +433,8 @@ function groupSameDayShowtimes(list){
       const b = (e["Payment for Entry"]||"").toLowerCase();
       if (!a && b) prev["Payment for Entry"] = e["Payment for Entry"];
       else if (a && b && a !== b) prev["Payment for Entry"] = "No"; // prefer free on conflict
+      // End date: keep the later one if present
+      if (e._EndDate && (!prev._EndDate || e._EndDate > prev._EndDate)) prev._EndDate = e._EndDate;
     }
   }
   return [...map.values()];
