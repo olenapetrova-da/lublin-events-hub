@@ -1,50 +1,39 @@
-/** materialize.gs — Enrich a small batch via Hub and patch raw_events in one write 
- * Calls Hub with enrich=1&enrich_max=15
- * Normalizes row dates to 'yyyy-MM-dd'
- * Compares scheme-agnostic URLs (host + path, strips query/hash and trailing slash)
- * Matches rows: Uses 3 keys (in order): Link|Date → Title|Date|Venue → Title|Date.
- * Updates in memory and writes back once (single batch write)
-Rules:
-  * Payment: “Yes” overrides “No/blank”; “No” fills blanks only
-  * Time: merge CSV times (unique, sorted)
-  * Venue/Category: fill blanks only
-*/
-
+/** materialize.gs — Enrich a small batch via Hub and patch raw_events in one write */
 function materialize() {
   const p = PropertiesService.getScriptProperties().getProperties();
   const HUB = ensureSlash(p.HUB_URL || '');
   const SHEET_ID = p.SHEET_ID || '';
   const TZ = p.TZ || Session.getScriptTimeZone() || 'Europe/Warsaw';
-  const BATCH = Number(p.ENRICH_BATCH || 15);
+  const BATCH = Number(p.ENRICH_BATCH || 30); // slightly larger batch to move faster
 
   if (!HUB || !SHEET_ID) throw new Error('Missing HUB_URL or SHEET_ID');
 
-  // same window as refresh()
+  // Same window as refresh()
   const dateISO = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
   const baseQS = 'period=week&days=7&group_times=1&pages=3&limit=1000&sheet=0';
   const url = `${HUB}?date=${encodeURIComponent(dateISO)}&${baseQS}&enrich=1&enrich_max=${encodeURIComponent(BATCH)}`;
 
   const resp = UrlFetchApp.fetch(url, { headers: { 'Accept': 'application/json' }, muteHttpExceptions: true });
-  const status = resp.getResponseCode();
-  if (status !== 200) throw new Error(`Hub enrich HTTP ${status}: ${resp.getContentText().slice(0,300)}`);
+  if (resp.getResponseCode() !== 200) throw new Error(`Hub enrich HTTP ${resp.getResponseCode()}: ${resp.getContentText().slice(0,300)}`);
 
   const data = JSON.parse(resp.getContentText() || '{}');
   const enriched = Array.isArray(data.events) ? data.events : [];
   if (!enriched.length) { Logger.log('materialize(): no events returned this pass.'); return; }
 
-  // Build lookups from payload
-  const byLD  = new Map();
-  const byTDV = new Map();
-  const byTD  = new Map();
+  // Build lookups from payload (3 keys)
+  const byLD  = new Map(); // Link|Date
+  const byTDV = new Map(); // Title|Date|Venue
+  const byTD  = new Map(); // Title|Date
   for (const e of enriched) {
     const payload = {
-      pay: s(e['Payment for Entry']),
+      pay : s(e['Payment for Entry']),
       time: s(e.Time),
       venue: s(e.Venue),
-      cat: s(e.Category),
+      cat : s(e.Category),
       date: s(e.Date),
+      end : s(e._EndDate || e['End Date'] || ''), // <- use details EndDate when available
       title: s(e.Title),
-      link: s(e.Link)
+      link : s(e.Link)
     };
     const kLD  = keyLD_payload(e.Link, e.Date);
     const kTDV = keyTDV_payload(e.Title, e.Date, e.Venue);
@@ -69,32 +58,38 @@ function materialize() {
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
 
-    // Normalize row date to ISO string; normalize URL
-    const rowDateISO = toISO(row[idx['Date']], TZ);
-    const kLD_row  = keyLD_row(row[idx['Link']], rowDateISO);
-    const kTDV_row = keyTDV_row(row[idx['Title']], rowDateISO, row[idx['Venue']]);
-    const kTD_row  = keyTD_row(row[idx['Title']], rowDateISO);
+    // Normalize row Date to ISO string and URL to canonical form
+    const dateISOrow = toISO(row[idx['Date']], TZ);
+    const kLD_row  = keyLD_row(row[idx['Link']], dateISOrow);
+    const kTDV_row = keyTDV_row(row[idx['Title']], dateISOrow, row[idx['Venue']]);
+    const kTD_row  = keyTD_row(row[idx['Title']], dateISOrow);
 
     const from =
       (kLD_row  && byLD.get(kLD_row)) ||
       (kTDV_row && byTDV.get(kTDV_row)) ||
       (kTD_row  && byTD.get(kTD_row));
 
+    // Always ensure _EndDate default if empty
+    if (!row[idx['_EndDate']] && dateISOrow) { row[idx['_EndDate']] = dateISOrow; changed++; }
+
     if (!from) {
-      // still default _EndDate
-      if (!row[idx['_EndDate']] && rowDateISO) { row[idx['_EndDate']] = rowDateISO; changed++; }
+      // If Date in sheet is blank but enrichment has one, fill it (rare but you saw it)
+      if (!dateISOrow && byTD.get(kTD_row) && byTD.get(kTD_row).date) {
+        row[idx['Date']] = byTD.get(kTD_row).date;
+        if (!row[idx['_EndDate']]) row[idx['_EndDate']] = byTD.get(kTD_row).date;
+        changed++;
+      }
       continue;
     }
-    if (kLD_row && byLD.has(kLD_row)) hitLD++;
-    else if (kTDV_row && byTDV.has(kTDV_row)) hitTDV++;
-    else if (kTD_row && byTD.has(kTD_row)) hitTD++;
 
-    // Payment: Yes overrides No/blank; No fills blank only
+    if (kLD_row && byLD.has(kLD_row)) hitLD++; else if (kTDV_row && byTDV.has(kTDV_row)) hitTDV++; else if (kTD_row && byTD.has(kTD_row)) hitTD++;
+
+    // Payment: Yes overrides No/blank; No fills blanks only
     const curPay = s(row[idx['Payment for Entry']]);
     if (from.pay === 'Yes' && curPay !== 'Yes') { row[idx['Payment for Entry']] = 'Yes'; changed++; }
     else if (from.pay === 'No' && !curPay)      { row[idx['Payment for Entry']] = 'No';  changed++; }
 
-    // Time: merge CSV times
+    // Time: merge CSVs
     const curTime = s(row[idx['Time']]);
     if (from.time) {
       const merged = mergeTimes(curTime, from.time);
@@ -105,8 +100,13 @@ function materialize() {
     if (!row[idx['Venue']]    && from.venue) { row[idx['Venue']]    = from.venue; changed++; }
     if (!row[idx['Category']] && from.cat)   { row[idx['Category']] = from.cat;   changed++; }
 
-    // _EndDate default to Date
-    if (!row[idx['_EndDate']] && rowDateISO) { row[idx['_EndDate']] = rowDateISO; changed++; }
+    // EndDate: if enrichment provides an end date, and it’s different & plausible, update
+    const curEnd = s(row[idx['_EndDate']]);
+    if (from.end && from.end !== curEnd) {
+      // prefer a real end date from details over list/default
+      row[idx['_EndDate']] = from.end;
+      changed++;
+    }
   }
 
   if (changed > 0) {
@@ -115,44 +115,28 @@ function materialize() {
   Logger.log('materialize(): events=%s; rows_changed=%s; matches LD/TDV/TD=%s/%s/%s; url=%s',
              enriched.length, changed, hitLD, hitTDV, hitTD, url);
 
-  // ==== helpers ====
+  // ===== helpers =====
   function s(v){ return (v == null) ? '' : String(v).trim(); }
   function need(h, names){ const pos={}; h.forEach((n,i)=>pos[n]=i); names.forEach(n=>{ if(!(n in pos)) throw new Error('Missing column: '+n); }); return pos; }
+  function toISO(cell, tz){ if (cell instanceof Date) return Utilities.formatDate(cell, tz, 'yyyy-MM-dd'); const t = s(cell); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : t; }
 
-  function toISO(cell, tz){
-    if (cell instanceof Date) return Utilities.formatDate(cell, tz, 'yyyy-MM-dd');
-    const t = s(cell);
-    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : t;
-  }
-
-  // --- URL normalization: scheme-agnostic host+path, no query/hash, no trailing slash
+  // Canonical URL: scheme-agnostic host+path, no query/hash, no trailing slash
   function canonUrl(u){
     u = s(u);
-    try {
-      const x = new URL(u);
-      const host = x.hostname.toLowerCase();
-      const path = x.pathname.replace(/\/+$/,'');
-      return host + path;
-    } catch {
-      return u.replace(/^https?:\/\//i,'').replace(/\/+$/,'').toLowerCase();
-    }
+    try { const x = new URL(u); return (x.hostname.toLowerCase() + x.pathname.replace(/\/+$/,'')); }
+    catch { return u.replace(/^https?:\/\//i,'').replace(/\/+$/,'').toLowerCase(); }
   }
 
-  // payload keys (already ISO date)
+  // payload keys
   function keyLD_payload(link,date){ const L=canonUrl(link), D=s(date); return (L&&D)?(L+'|'+D):''; }
   function keyTDV_payload(title,date,venue){ const D=s(date), T=norm(title), V=norm(venue); return (D&&T)?(T+'|'+D+'|'+V):''; }
   function keyTD_payload(title,date){ const D=s(date), T=norm(title); return (D&&T)?(T+'|'+D):''; }
-
-  // row keys (row date may be Date)
+  // row keys
   function keyLD_row(link,dateISO){ const L=canonUrl(link), D=s(dateISO); return (L&&D)?(L+'|'+D):''; }
   function keyTDV_row(title,dateISO,venue){ const D=s(dateISO), T=norm(title), V=norm(venue); return (D&&T)?(T+'|'+D+'|'+V):''; }
   function keyTD_row(title,dateISO){ const D=s(dateISO), T=norm(title); return (D&&T)?(T+'|'+D):''; }
 
-  function mergeTimes(a,b){
-    const toArr = s => (s||'').split(',').map(x=>x.trim()).filter(Boolean);
-    const set = new Set([...toArr(a), ...toArr(b)]);
-    return Array.from(set).sort().join(', ');
-  }
+  function mergeTimes(a,b){ const parts = x => (x||'').split(',').map(s=>s.trim()).filter(Boolean); const set = new Set([...parts(a), ...parts(b)]); return Array.from(set).sort().join(', '); }
   function norm(str){
     str = s(str).toLowerCase();
     str = str.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -163,5 +147,5 @@ function materialize() {
   }
 }
 
-/* util also used by refresh() */
+/* util shared with refresh() */
 function ensureSlash(u){ return u && !u.endsWith('/') ? (u + '/') : u; }
