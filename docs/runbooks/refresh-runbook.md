@@ -2,7 +2,7 @@
 
 ## Daily flow
 1) Apps Script `refresh()` calls hub once for a 7-day window (`sheet=0&group_times=1&pages=3&limit=1000`).
-2) Write `raw_events` (9 cols). If `_EndDate` missing, set `_EndDate = Date`.
+2) Write `raw_events` (**9 cols**). If `_EndDate` missing, set `_EndDate = Date`.
 3) Run `materialize()` → writes `events`.
 
 ---
@@ -15,6 +15,12 @@
 - **Missing _EndDate**: Expected from some sources; Apps Script defaults `_EndDate = Date` on write.
 
 ---
+## Logs & telemetry
+- Hub/refresh log prints: `include_in_progress` and a compact `per_source` summary (e.g., `zoom:58; lublin:51`).
+- Adapters/hub should also populate: `pages_scanned`, `budget_used`, `has_more`, `stopped_reason`.
+
+## Zoom source specifics
+- Zoom includes `/w-trakcie/` (ongoing) by default when `include_in_progress=1`; this can increase counts even with the same date window.
 
 ## If an adapter hits budget
 - The adapter returns partial results with `has_more=true`, `pages_scanned`, `budget_used`, `stopped_reason="budget"`.
@@ -29,6 +35,6 @@
 - Apps Script will keep the last successful `events` table; consider a `"stale": true` flag in the API if last refresh > 24h.
 
 ## Verification checklist
-- After `refresh()`: `raw_events` non-empty; columns match 10-col spec.
-- After `materialize()`: `events` row count ≥ raw (dedupe may reduce), valid `start_dt/end_dt`, payment normalized.
-- `taxonomy_unmapped` grows only on first days; curate with mapping tables.
+- After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
+- After `materialize()`: `events` has valid `start_dt/end_dt`, payment normalized to `free|paid|unknown`.
+- `taxonomy_unmapped` grows early; curate via `taxonomy_map`/`taxonomy_alias`.
