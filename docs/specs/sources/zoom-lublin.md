@@ -39,11 +39,14 @@ Rules:
 - **Time**: collect all `HH:MM` **for the requested Date only** when enriching a specific list row. Join with `", "` de-duplicated and sorted.
 - **_EndDate**: the **max** `YYYY-MM-DD` present in the block (range or last show day).
 
-> Follow the DOM as in `events_html/zoom/Zoom_event_card_details_multy-time.html`. :contentReference[oaicite:2]{index=2}
+> Follow the DOM as in `events_html/zoom/Zoom_event_card_details_multy-time.html`.
 
 ---
 
 ## Mapping to adapter output (sheet=0 JSON)
-- `Title, Date, Time, Venue, Category, Link, "Payment for Entry", Source, _EndDate`
-- Payment detection per ADR-0007; category is **raw** (taxonomy in Sheets). 
-- If the list provides multiple same-day times, keep them as `"09:30, 11:30"` (the hub will also union times across dupes when `group_times=1`). 
+- Required keys: `Title, Date, Time, Venue, Category, Link, "Payment for Entry", Source, _EndDate`  
+- Payment per ADR-0007; Category is **raw** (taxonomy in Sheets).  
+- If the list provides multiple same-day times, keep them as `"09:30, 11:30"` (hub with `group_times=1` can union showtimes across duplicates).
+
+## Notes on "in progress" (ongoing) items
+- zoom.lublin.pl uses “w trakcie” for ongoing exhibitions. When `include_in_progress=1` (default), adapters/hub may include them; counts can be higher even for the same window.
