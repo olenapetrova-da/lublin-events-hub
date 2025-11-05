@@ -1,5 +1,32 @@
-// Lublin_Zoom_Worker_forHub.js — zoom.lublin.pl adapter (budget-safe + enrichment)
-// ADRs: 0005, 0006, 0007, 0008, 0009, 0010
+/**
+ * Lublin_Zoom_Worker_forHub.js — 2025-11-05 (addendum #2)
+ * - New: Enrichment budget saver — skip detail-enrichment for ongoing/no-time ranges
+ *         (Time == "" AND _EndDate != Date). These are typically exhibitions; list data is sufficient.
+ * - Keep: include_in_progress support for /w-trakcie is unchanged.  :contentReference[oaicite:1]{index=1}
+ */
+
+/**
+ * Lublin_Zoom_Worker_forHub.js
+ * CHANGELOG — 2025-11-05 (addendum)
+ * - New: Option to include ongoing multi-day events from https://zoom.lublin.pl/w-trakcie/ .
+ *        Controlled by ?include_in_progress=1|0 (default: 1). Page count via ?inprog_pages=1..3 (default: 1).
+ * - Behavior: These cards are typically date ranges without times. We reuse the same list parser and
+ *             downstream window filtering (rangesOverlap) so only ranges intersecting the requested window are kept.
+ * - Risk control: One extra list fetch by default (page 1 of /w-trakcie/). Uses the same subrequest budget.
+ */
+
+/**
+ * Lublin_Zoom_Worker_forHub.js
+ * CHANGELOG — 2025-11-05
+ * - Fix: List parser reads dates/times strictly from `.event-card__dates` (no legacy data-* attrs).
+ * - Fix: Supports two-<span> “no-time” ranges like `<span>YYYY-MM-DD — </span><span>YYYY-MM-DD</span>`;
+ *        emits rows with Time="" and _EndDate set to the second date.
+ * - Fix: Normalizes all times to HH:MM via padTime(); detail enrichment also pads times.
+ * - Fix: Detail enrichment reads only the correct blocks: single-event__dates/place/categories/tickets.
+ * - Fix: Payment detection prioritizes tickets block; falls back to page-level heuristic.
+ * - Keep: Grouping showtimes when `group_times=1`. ?sheet=1 returns rows (8 cols, no Image URL).
+ */
+
 
 export default {
   async fetch(request, env, ctx) {
@@ -19,11 +46,16 @@ export default {
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
+      // NEW: include ongoing events (/w-trakcie) — default ON unless explicitly set
+      const includeInProgress = q.has("include_in_progress") ? flag(q.get("include_in_progress")) : true;
+      const inprogPages       = clamp(int(q.get("inprog_pages"), 1), 1, 3);
+
       // ---- Subrequest budget (ADR-0010) ----
       const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
       const budget     = { used: 0, max: userBudget || 48 };
 
-      const listUrl = ensureSlash(q.get("url") || "https://zoom.lublin.pl/wydarzenia/");
+      const listUrl    = ensureSlash(q.get("url") || "https://zoom.lublin.pl/wydarzenia/");
+      const inprogUrl  = "https://zoom.lublin.pl/w-trakcie/"; // server-rendered list of ongoing ranges
 
       if (!startISO) return jserr("Missing ?date=YYYY-MM-DD", 400);
       const start = parseYMD(startISO);
@@ -33,7 +65,7 @@ export default {
       const scanned = [];
       let pages_scanned = 0;
 
-      // ---- Crawl list pages (budget-aware)
+      // ---- Crawl /wydarzenia (budget-aware)
       const events = [];
       const fetchCap = groupTimes ? Math.min(limit * 3, 2000) : limit;
       const listCollectCap = enrich ? Math.max(enrichMax * 10, 100) : fetchCap;
@@ -51,6 +83,24 @@ export default {
         pages_scanned++; scanned.push(next);
         if (!r.ok) break;
         collect(parseZoomList(r.html));
+      }
+
+      // ---- Optionally crawl /w-trakcie (ongoing, usually no-time ranges)
+      if (includeInProgress && budget.used < budget.max && events.length < listCollectCap) {
+        // page 1
+        let r2 = await fetchPage(inprogUrl, ctx, budget, { useCache: true, writeCache: true });
+        pages_scanned++; scanned.push(inprogUrl);
+        if (r2.ok) collect(parseZoomList(r2.html));
+
+        // heuristic pagination: /w-trakcie/page/2/
+        for (let p = 2; p <= inprogPages; p++) {
+          if (budget.used >= budget.max || events.length >= listCollectCap) break;
+          const next = new URL(`page/${p}/`, inprogUrl).toString();
+          r2 = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
+          pages_scanned++; scanned.push(next);
+          if (!r2.ok) break;
+          collect(parseZoomList(r2.html));
+        }
       }
 
       // ---- Filter by requested window (Date.._EndDate)
@@ -94,6 +144,8 @@ export default {
         budget_exhausted: budget.used >= budget.max,
         enriched: enrichedCount,
         detail_scanned,
+        include_in_progress: includeInProgress ? 1 : 0,
+        inprog_pages: includeInProgress ? inprogPages : 0,
         count: sliced.length,
         events: sliced
       };
@@ -194,7 +246,7 @@ function parseZoomList(raw) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // iterate per <div class="event-card"> ... </div>
+  // Iterate per <div class="event-card"> ... </div>
   let i = 0;
   while (true) {
     const start = html.indexOf('<div class="event-card"', i);
@@ -208,6 +260,7 @@ function parseZoomList(raw) {
     if (!mTitle) continue;
     const href  = (mTitle[1] || "").trim();
     const title = text(mTitle[2]);
+    if (!title) continue;
 
     // Venue
     const venue = text(firstMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
@@ -215,9 +268,10 @@ function parseZoomList(raw) {
     // Category
     const category = text(firstMatch(block, /<div\s+class="event-card__data-right"[\s\S]*?<a[^>]*class="c-btn[^"]*c-btn--primary[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/i) || "");
 
-    // Date/Time from .event-card__dates span
-    const dtText = text(firstMatch(block, /<div\s+class="event-card__dates"[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
-    const { Date, Time, End } = parseListDateTime(dtText);
+    // Date/Time — read ALL <span> inside .event-card__dates (supports two-span ranges)
+    const datesBlock = sliceFirstBlock(block, "event-card__dates");
+    const spanTexts  = extractDateSpanTexts(datesBlock);
+    const { Date, Time, End } = parseListDateTimeFromSpans(spanTexts);
 
     out.push({
       Title: title,
@@ -236,33 +290,63 @@ function parseZoomList(raw) {
   return out;
 }
 
-// Parse strings like:
-// "2025-11-05 — 09:30, 11:30"
-// "2025-11-05 — 09:30"
-// "2025-11-05 — 2025-11-12"
-function parseListDateTime(s){
-  const t = s.replace(/[‐-‒–—]/g, "-");
-  let Date = "", Time = "", End = "";
-  // Range
-  let m = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(t);
-  if (m) return { Date: m[1], Time: "", End: m[2] };
-
-  // Date — times
-  m = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(.+)\s*$/.exec(t);
-  if (m) {
-    Date = m[1];
-    const times = Array.from(new Set((m[2].match(/\b([0-2]?\d:[0-5]\d)\b/g) || []).map(x => x.trim()))).sort();
-    Time = times.join(", ");
-    End = Date;
+// Read all <span>…</span> texts within the dates block
+function extractDateSpanTexts(blockHtml) {
+  const re = /<span>([\s\S]*?)<\/span>/gi;
+  const spans = [];
+  let m;
+  while ((m = re.exec(blockHtml)) !== null) {
+    const s = text(m[1]);
+    if (s) spans.push(s);
   }
-  return { Date, Time, End };
+  return spans;
+}
+
+// Accepts tokens from .event-card__dates, supports:
+//  • "YYYY-MM-DD — HH:MM, HH:MM"
+//  • "YYYY-MM-DD — HH:MM"
+//  • "YYYY-MM-DD — YYYY-MM-DD" (including split across two <span>s)
+function parseListDateTimeFromSpans(spans) {
+  if (!spans || !spans.length) return { Date: "", Time: "", End: "" };
+  const normHyph = s => (s || "").replace(/[‐-‒–—]/g, "-");
+
+  const s0 = normHyph(spans[0]);
+  const s1 = spans[1] ? normHyph(spans[1]) : "";
+
+  // Try: first token has date, optional " - ...", maybe times; second token pure date ⇒ range (no times)
+  const m0 = /^\s*(\d{4}-\d{2}-\d{2})\s*(?:-)?\s*(.*)\s*$/.exec(s0);
+  if (m0) {
+    const d = m0[1];
+    const rest = m0[2] || "";
+    const hasTime = /\b[0-2]?\d:[0-5]\d\b/.test(rest);
+
+    if (!hasTime && /^\s*\d{4}-\d{2}-\d{2}\s*$/.test(s1)) {
+      // Two-span range: "<span>YYYY-MM-DD — </span><span>YYYY-MM-DD</span>"
+      return { Date: d, Time: "", End: s1.trim() };
+    }
+
+    // Times in first token
+    const times = Array.from(new Set((rest.match(/\b([0-2]?\d:[0-5]\d)\b/g) || [])
+      .map(padTime))).sort();
+    return { Date: d, Time: times.join(", "), End: d };
+  }
+
+  // Fallback: "YYYY-MM-DD - YYYY-MM-DD" in a single span
+  const mRange = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(s0);
+  if (mRange) return { Date: mRange[1], Time: "", End: mRange[2] };
+
+  return { Date: "", Time: "", End: "" };
 }
 
 /* ---------------- Enrichment (detail pages) — DOM-precise ---------------- */
 async function enrichDetails(list, cap, ctx, budget) {
-  const targets = list.filter(
-    e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category || !e._EndDate
-  );
+  // Skip ongoing/no-time ranges completely to save subrequests:
+  // definition: no Time AND _EndDate present AND _EndDate !== Date
+  const isOngoingNoTime = (e) => !((e.Time || "").trim()) && !!e._EndDate && e._EndDate !== e.Date;
+
+  const targets = list
+    .filter(e => !isOngoingNoTime(e)) // NEW: budget saver
+    .filter(e => !(e["Payment for Entry"] || "") || !e.Time || !e.Venue || !e.Category || !e._EndDate);
 
   const scanned = [];
   let enriched = 0;
@@ -270,19 +354,17 @@ async function enrichDetails(list, cap, ctx, budget) {
   for (const e of targets.slice(0, cap)) {
     if (budget.used >= budget.max) break;
 
-    // Skip cache for details to preserve budget for real content
     const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
     if (!r.ok) continue;
     scanned.push(e.Link);
 
     const info = parseZoomDetail(r.html, e.Date);
 
-    // Payment: Yes overrides No/blank; No fills blanks only
     if (info.Payment === "Yes" && e["Payment for Entry"] !== "Yes") e["Payment for Entry"] = "Yes";
     else if (info.Payment === "No" && !e["Payment for Entry"])      e["Payment for Entry"] = "No";
 
-    if (info.Time)                 e.Time      = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
-    if (info.Venue && !e.Venue)    e.Venue     = info.Venue;
+    if (info.Time)                    e.Time      = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
+    if (info.Venue && !e.Venue)       e.Venue     = info.Venue;
     if (info.Category && !e.Category) e.Category  = info.Category;
 
     if (info.EndDate) {
@@ -306,7 +388,7 @@ function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
   // PAYMENT — read tickets block first (fallback to page-level if missing)
   const Payment = detectPaymentFromTickets(ticketsBlock) || detectPaymentPage(html);
 
-  // TIMES — from dates block, rows like: <span>YYYY-MM-DD — HH:MM</span>
+  // TIMES — rows like: <span>YYYY-MM-DD — HH:MM</span> or pure ranges
   const times = [];
   const datesSeen = new Set();
   const reSpan = /<span>([\s\S]*?)<\/span>/gi;
@@ -316,7 +398,7 @@ function parseZoomDetail(raw, forDate /* YYYY-MM-DD */) {
     const t1 = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*([0-2]?\d:[0-5]\d)\s*$/.exec(s);
     const t2 = /^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\s*$/.exec(s);
     if (t1) {
-      const d = t1[1], hh = t1[2];
+      const d = t1[1], hh = padTime(t1[2]);
       datesSeen.add(d);
       if (!forDate || d === forDate) times.push(hh);
     } else if (t2) {
@@ -430,6 +512,12 @@ function norm(s){
     .replace(/[ąĄ]/g,"a")
     .replace(/[ęĘ]/g,"e")
     .toLowerCase();
+}
+function padTime(t) {
+  const m = /^\s*([0-2]?\d):([0-5]\d)\s*$/.exec(t || "");
+  if (!m) return (t || "").trim();
+  const hh = String(parseInt(m[1], 10)).padStart(2, "0");
+  return `${hh}:${m[2]}`;
 }
 
 function lastMatch(str, re){ let m, last=null; while((m=re.exec(str))!==null){ last = m[1] || m[0]; } return last; }
