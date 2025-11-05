@@ -1,3 +1,12 @@
+// CHANGELOG — 2025-11-05 (addendum #2)
+// - New: Ranking — timed events first, then ongoing/no-time; within each group sort by Date, then earliest Time.
+// - No API changes. Rows & events reflect the new order.
+// - (Context) Pass-through for include_in_progress already present.  :contentReference[oaicite:0]{index=0}
+
+// CHANGELOG — 2025-11-05 (addendum)
+// - New: Pass-through for ?include_in_progress=1|0 (default if missing: 1) and ?inprog_pages=1..3 (default: 1).
+//        The Hub forwards these to adapters so we can include ongoing events from /w-trakcie by default,
+//        but still have a switch for time-specific use cases or as a kill-switch if needed.
 
 // lublin-events-hub — Orchestrator for multiple adapters (bindings preferred, HTTP fallback)
 // Contract: adapters return JSON with events[] when sheet=0 (default). Hub dedupes + caps.
@@ -24,6 +33,10 @@ export default {
     const enrich     = flag(q.get("enrich"));
     const enrich_max = clamp(int(q.get("enrich_max"), 15), 1, 100);
     const budget     = int(q.get("budget"), 0);       // optional: forwarded to adapters iff >0
+
+    // NEW: include-in-progress pass-through (default ON if not specified)
+    const includeInProgress = q.has("include_in_progress") ? flag(q.get("include_in_progress")) : true;
+    const inprogPages       = clamp(int(q.get("inprog_pages"), 1), 1, 3);
 
     // ---- Source resolution (bindings > explicit src > CSV list > legacy URLs) ----
     const hasZoomBinding   = !!env.L_ZOOM;
@@ -57,7 +70,8 @@ export default {
 
     // Build adapter query
     let qs = `?date=${encodeURIComponent(date)}&period=${period}&days=${encodeURIComponent(days)}&limit=${per}` +
-             `&sheet=0&group_times=${groupTimes ? "1" : "0"}&pages=${pages}`;
+             `&sheet=0&group_times=${groupTimes ? "1" : "0"}&pages=${pages}` +
+             `&include_in_progress=${includeInProgress ? "1" : "0"}&inprog_pages=${inprogPages}`;
     if (enrich) qs += `&enrich=1&enrich_max=${enrich_max}`;
     if (budget > 0) qs += `&budget=${clamp(budget, 1, 48)}`;
 
@@ -89,10 +103,13 @@ export default {
       }
     }
 
-    // ---- Dedupe + cap ----
+    // ---- Dedupe + ORDER + cap ----
     const stats = { merges: 0, time_merges: 0 };
     const uniq = dedupe(allEvents, stats);
-    const top = uniq.slice(0, limit);
+
+    // Order: timed first, then ongoing/no-time; then by Date, then earliest Time
+    const ordered = uniq.slice().sort(orderEvents);
+    const top = ordered.slice(0, limit);
 
     // ---- Prepare outputs
     const rows = top.map(toRow);
@@ -110,7 +127,9 @@ export default {
       limit,
       enrich: enrich ? 1 : 0,
       enrich_max: enrich ? enrich_max : 0,
-      budget: budget > 0 ? clamp(budget, 1, 48) : 0
+      budget: budget > 0 ? clamp(budget, 1, 48) : 0,
+      include_in_progress: includeInProgress ? 1 : 0,
+      inprog_pages: inprogPages
     };
 
     return json({
@@ -175,6 +194,31 @@ function prettySourceTag(rSource, eSource){
   try { const u = new URL(s); return u.hostname; } catch { return s; }
 }
 
+function hasTime(e){ return !!((e.Time || "").trim()); }
+function earliestTimeKey(e){
+  if (!hasTime(e)) return "99:99";
+  const parts = (e.Time || "").split(",").map(s => s.trim()).filter(Boolean);
+  const sorted = parts.map(t => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+    if (!m) return "99:99";
+    const hh = String(parseInt(m[1],10)).padStart(2,"0");
+    return `${hh}:${m[2]}`;
+  }).sort();
+  return sorted[0] || "99:99";
+}
+function orderEvents(a, b){
+  const aTimed = hasTime(a), bTimed = hasTime(b);
+  if (aTimed !== bTimed) return aTimed ? -1 : 1;                  // timed first
+  const ad = a.Date || "", bd = b.Date || "";
+  if (ad !== bd) return ad < bd ? -1 : 1;                         // then by date
+  if (aTimed && bTimed) {                                         // then by earliest time
+    const at = earliestTimeKey(a), bt = earliestTimeKey(b);
+    if (at !== bt) return at < bt ? -1 : 1;
+  }
+  // tie-breaker: title A→Z
+  return (a.Title || "").localeCompare(b.Title || "", "pl", { sensitivity: "base" });
+}
+
 /* ---------------- dedupe & scoring ---------------- */
 function toRow(e){
   // 8 columns: Title, Date, Time, Venue, Category, Link, Payment for Entry, Source
@@ -219,7 +263,6 @@ function pickBetter(a, b){
   if (sa > sb) { winner = a; other = b; }
   else if (sb > sa) { winner = b; other = a; }
   else {
-    // tie-breakers: prefer one that has Payment; then one that has Time; else 'a'
     const aPay = (a["Payment for Entry"]||"");
     const bPay = (b["Payment for Entry"]||"");
     if (aPay && !bPay) { winner = a; other = b; }
@@ -246,7 +289,7 @@ function pickBetter(a, b){
 function dedupe(list, stats){
   stats = stats || { merges: 0, time_merges: 0 };
   const out = [];
-  const keyToIdx = new Map(); // both URL and TDV keys map to one index in out
+  const keyToIdx = new Map();
 
   for (const e of list) {
     const d = e.Date || "";
@@ -255,12 +298,10 @@ function dedupe(list, stats){
     const urlKey = urlCore ? `${d}|${urlCore}` : "";
     const tdvKey = tdvCore ? `${d}|${tdvCore}` : "";
 
-    // exact match first
     let idx = -1;
     if (urlKey && keyToIdx.has(urlKey)) idx = keyToIdx.get(urlKey);
     else if (tdvKey && keyToIdx.has(tdvKey)) idx = keyToIdx.get(tdvKey);
     else {
-      // fuzzy fallback against already-kept items
       for (let i = 0; i < out.length; i++) {
         const ex = out[i];
         if (!sameDate(d, ex.Date || "")) continue;
@@ -282,7 +323,6 @@ function dedupe(list, stats){
       const afterSize  = parseTimes(out[idx].Time).size;
       if (beforeSize && parseTimes(e.Time).size && afterSize > beforeSize) stats.time_merges++;
 
-      // union sources
       const prevVia = Array.isArray(out[idx]._via) ? new Set(out[idx]._via) : new Set();
       const add = Array.isArray(e._via) ? e._via : (e.Source ? [e.Source] : []);
       for (const v of add) prevVia.add(v);
