@@ -7,6 +7,8 @@
 - `group_times` (0|1) — unify showtimes (hub-compatible)
 - `enrich` (0|1) — enable detail fetch for missing fields
 - `enrich_max` (int, default 15) — cap detail fetches
+- `include_in_progress`=1|0 (default 1),
+- `inprog_pages`=1..3
 - **Budget** (internal): `subreq_budget_max` — hard cap on total subrequests (list + detail)
 
 ## Response shape (JSON)
@@ -34,6 +36,10 @@
       "_EndDate": "YYYY-MM-DD (if multi-day; else can be omitted by adapter)"
     }
   ],
+    "per_source": [
+    { "source": "zoom.lublin.pl", "got": 58, "ok": true, "status": 200 },
+    { "source": "lublin.eu",      "got": 51, "ok": true, "status": 200 }
+  ],
   "error": ""  // non-empty only for fatal errors
 }
 
@@ -44,7 +50,9 @@
   - `stopped_reason: "budget"`
   - `pages_scanned`, `budget_used`
 
-- **Enrichment scope.** When `enrich=1`, enrich only fields allowed by ADR-0008 (Payment, Time/Time range, Venue). **No taxonomy/canonical mapping** in adapters.
+- **Enrichment scope.** When `enrich=1`, enrich only fields allowed by ADR-0008 (Payment, Time/Time range, Venue). 
+
+- **No taxonomy/canonical mapping** in adapters.
 
 - **_EndDate handling.** Pass `_EndDate` through when the source provides it. If missing, Apps Script sets `_EndDate = Date` during `refresh()` (ADR-0009).
 
@@ -57,3 +65,4 @@
 
 ## References
 - docs/specs/sources/zoom-lublin.md
+- ADR-0006, ADR-0008, ADR-0009, ADR-0010
