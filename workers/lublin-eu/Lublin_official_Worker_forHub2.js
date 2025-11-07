@@ -1,10 +1,17 @@
-// Lublin_official_Worker_forHub2.js
-// ADRs: 0005, 0006, 0007, 0008, 0009, 0010
-// - Counts ALL subrequests: cache.match(+1), fetch(+1, retry +1), cache.put(+1)
-// - Early-stops list crawl when enrich=1 (collect ~10× batch)
-// - Skips cache on detail pages (no match/put) to preserve budget
-// - No "Image URL"; Payment normalized to Yes/No/""
-
+// Lublin_official_Worker_forHub2.js — RESILIENT LIST CRAWL + A–F applied
+// ADRs: 0006, 0008, 0009, 0010, 0011
+// - Parse per .event card; .event-date-time BEFORE title
+// - Time extraction handles inner <span> (clock icon)
+// - Detail dates via label/value spans (YYYY-MM-DD and DD-MM-YYYY)
+// - Skip bad *day-1/page-1* (and any day) instead of aborting the whole week
+// - Broaden retries: 0/408/429/500/502/503/504 + 520/522/523/524
+// - Telemetry: has_more, stopped_reason, error (fatal only), failed_urls[]
+// - Deterministic sort: Date ↑, earliest Time ↑, Title A→Z
+// - Tweak: clear "00:00" for multi-day/exhibition-like
+//
+// Notes:
+// * We *don’t* mark stopped_reason="error" for per-day failures we skipped. That’s not fatal.
+// * We only set stopped_reason="budget" when budget is actually hit.
 //
 // ---------- response helpers ----------
 function json(obj, status = 200) {
@@ -16,11 +23,8 @@ function json(obj, status = 200) {
     }
   });
 }
-function jserr(msg, status = 400) {
-  return json({ error: String(msg) }, status);
-}
+function jserr(msg, status = 400) { return json({ error: String(msg) }, status); }
 
-//
 // ---------- tiny utils ----------
 function flag(v){ return ["1","true","yes","y"].includes(String(v||"").toLowerCase()); }
 function int(v,d){ const n=parseInt(v??"",10); return Number.isFinite(n)?n:d; }
@@ -38,36 +42,37 @@ function normalizeHtml(s){ return (s||"").replace(/\r/g,"").replace(/\t/g," ").r
 function stripTags(s){ return (s||"").replace(/<[^>]*>/g," "); }
 function decodeEntities(s){
   return (s||"")
-    .replace(/&quot;|&#34;/g,'"')
-    .replace(/&apos;|&#39;/g,"'")
-    .replace(/&amp;/g,"&")
-    .replace(/&lt;/g,"<")
-    .replace(/&gt;/g,">")
-    .replace(/&laquo;|&#171;/g,"«")
-    .replace(/&raquo;|&#187;/g,"»");
+    .replace(/&quot;|&#34;/g,'"').replace(/&apos;|&#39;/g,"'")
+    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+    .replace(/&laquo;|&#171;/g,"«").replace(/&raquo;|&#187;/g,"»");
 }
 function text(s){ return decodeEntities(stripTags(s)).replace(/\s+/g," ").trim(); }
 function norm(s){
   const t = text(s).normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
   return t
-    .replace(/[łŁ]/g,"l")
-    .replace(/[śŚ]/g,"s")
-    .replace(/[ćĆ]/g,"c")
-    .replace(/[źŻŹ]/g,"z")
-    .replace(/[óÓ]/g,"o")
-    .replace(/[ńŃ]/g,"n")
-    .replace(/[ąĄ]/g,"a")
-    .replace(/[ęĘ]/g,"e")
-    .toLowerCase();
+    .replace(/[łŁ]/g,"l").replace(/[śŚ]/g,"s").replace(/[ćĆ]/g,"c")
+    .replace(/[źŻŹ]/g,"z").replace(/[óÓ]/g,"o").replace(/[ńŃ]/g,"n")
+    .replace(/[ąĄ]/g,"a").replace(/[ęĘ]/g,"e").toLowerCase();
 }
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-function mergeTimes(a,b){
-  const arr = s => (s||"").split(",").map(x => x.trim()).filter(Boolean);
-  const set = new Set([...arr(a), ...arr(b)]);
-  return Array.from(set).sort().join(", ");
+function mergeTimes(a,b){ const arr = s => (s||"").split(",").map(x => x.trim()).filter(Boolean);
+  const set = new Set([...arr(a), ...arr(b)]); return Array.from(set).sort().join(", "); }
+function earliestTimeKey(e){
+  const s = (e.Time || "").trim(); if (!s) return "99:99";
+  const parts = s.split(",").map(x => x.trim()).filter(Boolean);
+  const sorted = parts.map(t => { const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+    if (!m) return "99:99"; const hh = String(parseInt(m[1],10)).padStart(2,"0"); return `${hh}:${m[2]}`; }).sort();
+  return sorted[0] || "99:99";
+}
+function orderEvents(a, b){
+  const at = !!((a.Time||"").trim()), bt = !!((b.Time||"").trim());
+  if (at !== bt) return at ? -1 : 1;                    // timed first
+  const ad = a.Date || "", bd = b.Date || "";
+  if (ad !== bd) return ad < bd ? -1 : 1;               // then by date
+  if (at && bt) { const ak = earliestTimeKey(a), bk = earliestTimeKey(b); if (ak !== bk) return ak < bk ? -1 : 1; }
+  return (a.Title||"").localeCompare(b.Title||"", "pl", { sensitivity: "base" });
 }
 
-//
 // ---------- Worker ----------
 export default {
   async fetch(request, env, ctx) {
@@ -87,6 +92,10 @@ export default {
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
+      // Accept (no-op) include_in_progress / inprog_pages for contract alignment
+      const includeInProgress = q.has("include_in_progress") ? flag(q.get("include_in_progress")) : true;
+      const inprogPages       = clamp(int(q.get("inprog_pages"), 1), 1, 3);
+
       // Budget (ADR-0010): ≤48, count cache.match/fetch/cache.put
       const userBudget = clamp(int(q.get("budget"), 0), 0, 48);
       const budget     = { used: 0, max: userBudget || 48 };
@@ -98,47 +107,56 @@ export default {
       if (!start) return jserr("Bad or missing date", 400);
       const end = addDays(start, days - 1);
 
-      // Build day URLs
+      // Day URLs
       const dayUrls = [];
-      if (explicitUrl && /\d{2}-\d{2}-\d{4},dzien/i.test(explicitUrl)) {
-        dayUrls.push(explicitUrl);
-      } else {
-        for (let i=0;i<days;i++){
-          dayUrls.push(`https://lublin.eu/kultura/wydarzenia/${toDMY(addDays(start,i))},dzien.html`);
-        }
-      }
+      if (explicitUrl && /\d{2}-\d{2}-\d{4},dzien/i.test(explicitUrl)) dayUrls.push(explicitUrl);
+      else for (let i=0;i<days;i++) dayUrls.push(`https://lublin.eu/kultura/wydarzenia/${toDMY(addDays(start,i))},dzien.html`);
 
       const scanned = [];
+      const failed_urls = [];
       let pages_scanned = 0;
       const events = [];
 
       // Early-stop list collection when enrich=1
-      const listCollectCap = enrich
-        ? Math.max(enrichMax * 10, 100)
-        : (groupTimes ? Math.min(limit * 2, 2000) : limit);
+      const listCollectCap = enrich ? Math.max(enrichMax * 10, 100) : (groupTimes ? Math.min(limit * 2, 2000) : limit);
 
-      // Crawl list pages (budget-aware)
-      outer:
+      // Telemetry
+      let stopped_reason = "no_more";
+      let has_more = false;
+      let errorMsg = ""; // fatal only
+
+      // Crawl list pages (budget-aware, day-resilient)
       for (const dayUrl of dayUrls) {
         if (budget.used >= budget.max || events.length >= listCollectCap) break;
 
+        // Page 1 (resilient): if it fails, record & CONTINUE with next day
         const r1 = await fetchPage(dayUrl, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(dayUrl);
-        if (r1.ok) collect(parseOfficialList(r1.html, dayUrl));
-
-        if (events.length >= listCollectCap || budget.used >= budget.max) continue;
-
-        const m = /\/(\d{2}-\d{2}-\d{4}),dzien/i.exec(dayUrl);
-        if (!m) continue;
-        for (let p=2; p<=pagesMax; p++){
-          if (budget.used >= budget.max || events.length >= listCollectCap) break outer;
-          const next = `https://lublin.eu/kultura/wydarzenia/${p},${m[1]},strona_dzien.html`;
-          const r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
-          pages_scanned++; scanned.push(next);
-          if (!r.ok) break;
-          collect(parseOfficialList(r.html, next));
+        if (!r1.ok) {
+          failed_urls.push({ url: dayUrl, status: r1.status || 0, where: "page1" });
+          // not fatal — move on to next date
+          continue;
         }
+        collect(parseOfficialList(r1.html, dayUrl));
+
+        // Next pages (2..pagesMax)
+        const m = /\/(\d{2}-\d{2}-\d{4}),dzien/i.exec(dayUrl);
+        if (m) {
+          for (let p=2; p<=pagesMax; p++){
+            if (budget.used >= budget.max || events.length >= listCollectCap) break;
+            const next = `https://lublin.eu/kultura/wydarzenia/${p},${m[1]},strona_dzien.html`;
+            const r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
+            pages_scanned++; scanned.push(next);
+            if (!r.ok) { failed_urls.push({ url: next, status: r.status || 0, where: "pageN" }); break; }
+            collect(parseOfficialList(r.html, next));
+          }
+        }
+
+        if (budget.used >= budget.max) { stopped_reason = "budget"; has_more = true; break; }
       }
+
+      if (budget.used >= budget.max) { stopped_reason = "budget"; has_more = true; }
+      else { stopped_reason = "no_more"; }
 
       // Enrichment (detail pages) — DO NOT use cache to save subrequests
       let enrichedCount = 0;
@@ -149,9 +167,9 @@ export default {
         );
         const cap = Math.min(enrichMax, Math.max(0, budget.max - budget.used));
         for (const e of targets.slice(0, cap)) {
-          if (budget.used >= budget.max) break;
+          if (budget.used >= budget.max) { stopped_reason = "budget"; has_more = true; break; }
           const r = await fetchPage(e.Link, ctx, budget, { useCache: false, writeCache: false });
-          if (!r.ok) continue;
+          if (!r.ok) { failed_urls.push({ url: e.Link, status: r.status || 0, where: "detail" }); continue; }
           enrich_scanned.push(e.Link);
 
           const info = parseOfficialDetail(r.html);
@@ -159,28 +177,41 @@ export default {
           if (info.Time)  e.Time  = e.Time ? mergeTimes(e.Time, info.Time) : info.Time;
           if (info.Venue && !e.Venue) e.Venue = info.Venue;
           if (info.Category && !e.Category) e.Category = info.Category;
-          if (info.EndDate) e._EndDate = info.EndDate;          // prefer detail end date
-          if (info.StartDate && !e.Date) e.Date = info.StartDate; // fill if list missed date
+          if (info.EndDate) e._EndDate = info.EndDate;                // prefer detail end date
+          if (info.StartDate && !e.Date) e.Date = info.StartDate;     // fill if list missed date
           enrichedCount++;
         }
       }
 
-      // Finalize
-      const finalized = groupTimes ? groupSameDayShowtimes(events) : events;
+      // Finalize list
+      let finalized = groupTimes ? groupSameDayShowtimes(events) : events;
+      finalized = finalized.map(e => normalizeZeroTime(e));           // clear 00:00 for ongoing/exhibitions
+      finalized = finalized.slice().sort(orderEvents);                // stable order
       const sliced = finalized.slice(0, limit);
 
+      // If we collected nothing at all AND every first page failed, call it fatal
+      const allFirstPagesFailed = sliced.length === 0 && scanned.length > 0 &&
+        failed_urls.filter(x => x.where === "page1").length >= dayUrls.length;
+      if (allFirstPagesFailed) { stopped_reason = "error"; has_more = true; errorMsg = "All day-1 pages failed"; }
+
       const payload = {
+        version: "official-2hub-2025-11-06-r1",
         source: "lublin.eu",
         url: explicitUrl || "https://lublin.eu/kultura/wydarzenia",
         start: fmt(start),
         end: fmt(end),
         pages_scanned,
         scanned,
+        failed_urls,
         budget_used: budget.used,
         budget_max: budget.max,
-        budget_exhausted: budget.used >= budget.max,
+        has_more,
+        stopped_reason,
+        error: errorMsg || "",
         enriched: enrichedCount,
         enrich_scanned,
+        include_in_progress: includeInProgress ? 1 : 0,
+        inprog_pages: inprogPages,
         count: sliced.length,
         events: sliced
       };
@@ -214,7 +245,6 @@ export default {
   }
 };
 
-//
 // ---------- HTTP with budget counting (ADR-0010) ----------
 async function fetchPage(url, ctx, budget, opts = {}) {
   const useCache   = opts.useCache   !== false; // default true
@@ -239,89 +269,70 @@ async function fetchPage(url, ctx, budget, opts = {}) {
     if (cached) return { ok:true, status:200, html: await cached.text() };
   }
 
-  // fetch counts (+1)
+  // fetch (+1) with broadened retry window
+  const RETRY_STATUSES = new Set([0, 408, 429, 500, 502, 503, 504, 520, 522, 523, 524]);
+
   if (budget.used + 1 > budget.max) return { ok:false, status:0, html:"" };
   budget.used++;
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 20000);
+  let res = await fetch(req, { redirect: "follow" });
 
-  try {
-    let res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
-
-    // retry counts (+1)
-    if (!res.ok && [520,522,523,524].includes(res.status) && (budget.used + 1) <= budget.max) {
-      budget.used++;
-      res = await fetch(req, { signal: ctrl.signal, redirect: "follow" });
-    }
-
-    const html = await res.text();
-    if (!res.ok) return { ok:false, status:res.status, html };
-
-    // cache.put counts (+1) — skip on details
-    if (useCache && writeCache && (budget.used + 1) <= budget.max) {
-      budget.used++;
-      const out = new Response(html, {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "public, max-age=900"
-        }
-      });
-      ctx && ctx.waitUntil(cache.put(req, out.clone()));
-    }
-
-    return { ok:true, status:200, html };
-  } catch {
-    return { ok:false, status:0, html:"" };
-  } finally {
-    clearTimeout(to);
+  if (!res.ok && RETRY_STATUSES.has(res.status) && (budget.used + 1) <= budget.max) {
+    budget.used++;
+    res = await fetch(req, { redirect: "follow" });
   }
+
+  const html = await res.text().catch(() => "");
+  if (!res.ok) return { ok:false, status:res.status || 0, html };
+
+  // cache.put counts (+1) — skip on details
+  if (useCache && writeCache && (budget.used + 1) <= budget.max) {
+    budget.used++;
+    const out = new Response(html, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=900"
+      }
+    });
+    ctx && ctx.waitUntil(cache.put(req, out.clone()));
+  }
+
+  return { ok:true, status:200, html };
 }
 
-//
-// ---------- Official list parser (forward-only; first two dates AFTER title) ----------
+// ---------- Official list parser (per-card; date/time BEFORE title) ----------
 function parseOfficialList(raw, baseUrl) {
   const html = normalizeHtml(raw);
   const out = [];
 
-  const reTitle = /<div\s+class="event-title">\s*<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  // Split by top-level .event cards
+  const reCard = /<div\s+class="event"[^>]*>([\s\S]*?)<\/div>\s*<\/div>?/gi;
   let m;
-  while ((m = reTitle.exec(html)) !== null) {
-    const href  = absUrl(baseUrl, (m[1] || "").trim());
-    const title = text(m[2]);
-    if (!title) continue;
+  while ((m = reCard.exec(html)) !== null) {
+    const card = m[1];
 
-    // scan only FORWARD from the title to avoid previous-card bleed
-    const forward = html.slice(m.index, Math.min(html.length, m.index + 4000));
-
-    // up to two dates AFTER the title (start, end)
+    // Dates (one or two)
     const dates = [];
-    const reDate = /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})\s*<\/span>/gi;
-    let dd; reDate.lastIndex = 0;
-    while ((dd = reDate.exec(forward)) !== null && dates.length < 2) dates.push(dd[1]);
-    const isoStart = dates[0] ? dates[0].split('-').reverse().join('-') : '';
-    const isoEnd   = dates[1] ? dates[1].split('-').reverse().join('-') : isoStart;
+    const reDate = /class="[^"]*event-date[^"]*"[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})/gi;
+    let d; while ((d = reDate.exec(card)) !== null) { dates.push(d[1]); if (dates.length === 2) break; }
+    const isoStart = dates[0] ? dmyToIso(dates[0]) : "";
+    const isoEnd   = dates[1] ? dmyToIso(dates[1]) : (isoStart || "");
 
-    // time, venue, category — first occurrence AFTER title
-    const time = firstMatch(forward, /class="[^"]*event-time[^"]*"[^>]*>\s*([0-9]{1,2}:[0-9]{2})\s*<\/span>/i) || "";
-    const venue = text(
-      firstMatch(forward, /class="[^"]*(?:event__place|place|lokalizacja)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|li)>/i) ||
-      firstMatch(forward, />\s*(?:Miejsce|Lokalizacja)\s*:\s*<[^>]*>\s*([^<]+)/i) ||
-      firstMatch(forward, />\s*(?:Miejsce|Lokalizacja)\s*:\s*([^<]+)/i) || ""
-    );
-    const category = text(
-      firstMatch(forward, /class="[^"]*(?:event__category|category|tag)[^"]*"[^>]*>\s*([\s\S]*?)<\/(?:div|span|a)>/i) ||
-      firstMatch(forward, />\s*(?:Kategoria|Category)\s*:\s*<[^>]*>\s*([^<]+)/i) ||
-      firstMatch(forward, />\s*(?:Kategoria|Category)\s*:\s*([^<]+)/i) || ""
-    );
+    // Time: allow nested spans before digits
+    const time = firstMatch(card, /class="[^"]*event-time[^"]*"[^>]*>[\s\S]*?([0-9]{1,2}:[0-9]{2})/i) || "";
+
+    // Title + href
+    const href  = absUrl(baseUrl, firstMatch(card, /<div\s+class="event-title">[\s\S]*?<a\s+href="([^"]+)"/i) || "");
+    const title = text(firstMatch(card, /<div\s+class="event-title">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) || "");
+    if (!title || !href) continue;
 
     out.push({
       Title: title,
       Date: isoStart,
       Time: time,
-      Venue: venue,
-      Category: category,
+      Venue: "",
+      Category: "",
       Link: href,
-      "Payment for Entry": detectPaymentList(forward), // "No" or ""
+      "Payment for Entry": "",
       Source: "lublin.eu",
       _EndDate: isoEnd,
       _fp_url: urlPath(href)
@@ -329,13 +340,19 @@ function parseOfficialList(raw, baseUrl) {
   }
   return out;
 }
+function dmyToIso(s){ const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec((s||"").trim()); return m ? `${m[3]}-${m[2]}-${m[1]}` : ""; }
 
-//
-// ---------- Official detail parser (prefer detail end date) ----------
+// ---------- Official detail parser ----------
 function parseOfficialDetail(raw) {
   const html = normalizeHtml(raw);
 
-  // Time
+  // Dates
+  const sd = labelValue(html, 'Data\\s*rozpocz(?:z|ż)ęcia') || labelBlock(html, 'Data\\s*rozpocz(?:z|ż)ęcia');
+  const ed = labelValue(html, 'Data\\s*zako(?:ń|n)czenia')   || labelBlock(html, 'Data\\s*zako(?:ń|n)czenia');
+  const StartDate = normalizeDate(sd);
+  const EndDate   = normalizeDate(ed);
+
+  // Time (start)
   const t1 =
     labelValue(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
     labelBlock(html, 'Godzina(?:\\s+rozpocz(?:e|ę)cia)?') ||
@@ -361,26 +378,22 @@ function parseOfficialDetail(raw) {
     labelBlock(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
     labelValue(html, '(?:Udział|Udzial|Wstęp|Wstep)') ||
     lastMatch(html, /(?:Udział|Udzial|Wstęp|Wstep)\s*:\s*<[^>]*>\s*([^<]+)/gi) || "";
-
   let payment = "";
   if (lbl) payment = normalizePaymentExact(lbl); else payment = detectPaymentPage(html);
-
-  // Dates from detail (prefer EndDate)
-  const dStart = firstMatch(html, />\s*Data\s*rozpoc(?:z|ż)ęcia\s*:\s*<[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})/i);
-  const dEnd   = firstMatch(html, />\s*Data\s*zako(?:ń|n)czenia\s*:\s*<[^>]*>\s*([0-9]{2}-[0-9]{2}-[0-9]{4})/i);
-  const StartDate = dStart ? dStart.split('-').reverse().join('-') : "";
-  const EndDate   = dEnd   ? dEnd.split('-').reverse().join('-')   : "";
 
   return { Time: t1, Venue: text(v1), Category: text(c1), Payment: payment, StartDate, EndDate };
 }
 
-//
-// ---------- Payment normalization ----------
-function detectPaymentList(block){
-  const t = norm(block);
-  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No";
+function normalizeDate(v){
+  const s = (v||"").trim(); if (!s) return "";
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s); if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return "";
 }
+
+// ---------- Payment normalization ----------
+function detectPaymentList(block){ const t = norm(block);
+  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No"; return ""; }
 function detectPaymentPage(html){
   const t = norm(html);
   const hasFree = /(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t);
@@ -392,12 +405,11 @@ function detectPaymentPage(html){
 }
 function normalizePaymentExact(v){
   const t = norm(v);
-  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No"; // FREE first
+  if (/(wstep wolny|bezplatn|darmow|gratis|nieodplat)/.test(t)) return "No";
   if (/\b\d+[.,]?\d*\s*(zl|pln)\b/.test(t) || /(platn|platny|patn|bilet|bilety|wejsciow|oplata|cena)/.test(t)) return "Yes";
   return "";
 }
 
-//
 // ---------- label helpers & grouping ----------
 function labelValue(html, labelRe){
   const re = new RegExp(
@@ -419,6 +431,18 @@ function labelBlock(html, labelRe){
   const m = re.exec(html);
   return m ? text(m[1]) : "";
 }
+
+function normalizeZeroTime(e){
+  const t = (e.Time||"").trim();
+  if (!t) return e;
+  const isZero = /^0{0,1}0:00(?:\s*[–-]\s*0{0,1}0:00)?$/.test(t);
+  if (!isZero) return e;
+  const multiDay = (e._EndDate && e.Date && e._EndDate > e.Date);
+  const exhib = /wystaw|exhibit/i.test(e.Category||"");
+  if (multiDay || exhib) return { ...e, Time: "" };
+  return e;
+}
+
 function groupSameDayShowtimes(list){
   const map = new Map();
   for (const e of list) {
@@ -432,8 +456,7 @@ function groupSameDayShowtimes(list){
       const a = (prev["Payment for Entry"]||"").toLowerCase();
       const b = (e["Payment for Entry"]||"").toLowerCase();
       if (!a && b) prev["Payment for Entry"] = e["Payment for Entry"];
-      else if (a && b && a !== b) prev["Payment for Entry"] = "No"; // prefer free on conflict
-      // End date: keep the later one if present
+      else if (a && b && a !== b) prev["Payment for Entry"] = "No";
       if (e._EndDate && (!prev._EndDate || e._EndDate > prev._EndDate)) prev._EndDate = e._EndDate;
     }
   }

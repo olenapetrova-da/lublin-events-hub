@@ -1,7 +1,21 @@
+// CHANGELOG — 2025-11-07 (addendum #3)
+// - New: Cross-source **venue-less fallback** dedupe so Official (no Venue on list) can merge with Zoom
+//   without enabling enrichment. The fallback requires:
+//     • Same Date
+//     • Time overlap (identical HH:MM or within ±5 minutes) — only if both have at least one time
+//     • AND (Title token Jaccard ≥ 0.92  OR  URL slug token Jaccard ≥ 0.70)
+//   On merge we union showtimes, prefer non-empty Venue/Payment, and pick Source with priority Zoom > Official.
+//   Stats now include `fallback_merges`.
+//
+// - Why: lublin.eu list cards don’t expose Venue; with the primary rule (title+date+time+venue)
+//   duplicates from Zoom/Official weren’t merged. This fallback solves that without extra subrequests.
+//
+// NOTE: No API/response shape changes; just smarter dedupe behavior.
+
 // CHANGELOG — 2025-11-05 (addendum #2)
 // - New: Ranking — timed events first, then ongoing/no-time; within each group sort by Date, then earliest Time.
 // - No API changes. Rows & events reflect the new order.
-// - (Context) Pass-through for include_in_progress already present.  :contentReference[oaicite:0]{index=0}
+// - (Context) Pass-through for include_in_progress already present.
 
 // CHANGELOG — 2025-11-05 (addendum)
 // - New: Pass-through for ?include_in_progress=1|0 (default if missing: 1) and ?inprog_pages=1..3 (default: 1).
@@ -45,7 +59,7 @@ export default {
     const legacyZoom   = withSlash(q.get("lublin_zoom")     || "https://zoom-lublin-2hub.elenipster.workers.dev/");
     const legacyLublin = withSlash(q.get("lublin_official") || "https://official-lublin-2hub.elenipster.workers.dev/");
 
-    const aliasToBinding = { zoom: "L_ZOOM", official: "L_OFFICIAL", lublin: "L_OFFICIAL" };
+    const aliasToBinding = { zoom: "L_ZOOM", official: "L_OFFICIAL"/*, lublin: "L_OFFICIAL"*/ };
 
     const srcs = q.getAll("src").map(s => s.trim()).filter(Boolean);
     let sources = [];
@@ -104,7 +118,7 @@ export default {
     }
 
     // ---- Dedupe + ORDER + cap ----
-    const stats = { merges: 0, time_merges: 0 };
+    const stats = { merges: 0, time_merges: 0, fallback_merges: 0 }; // <— added fallback counter
     const uniq = dedupe(allEvents, stats);
 
     // Order: timed first, then ongoing/no-time; then by Date, then earliest Time
@@ -139,7 +153,7 @@ export default {
       deduped: uniq.length,
       count: top.length,
       per_source,
-      dedupe_stats: { merges: stats.merges, showtime_merges: stats.time_merges },
+      dedupe_stats: { merges: stats.merges, showtime_merges: stats.time_merges, fallback_merges: stats.fallback_merges },
       errors: errors.length ? errors : undefined,
       rows: sheet ? rows : undefined,
       events: sheet ? undefined : topEnriched
@@ -239,11 +253,32 @@ function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catc
 function titleDateVenueKey(e){ return `${normalizeForKey(e.Title)}|${e.Date||""}|${normalizeForKey(e.Venue)}`; }
 
 function tokenSet(s){ return new Set(normalizeForKey(s).split(" ").filter(Boolean)); }
+function jaccardSets(A, B){ if(!A.size && !B.size) return 1; if(!A.size || !B.size) return 0; let c=0; for(const t of A) if(B.has(t)) c++; return c/(A.size + B.size - c); }
 function overlap(a,b){ const A=tokenSet(a),B=tokenSet(b); if(!A.size||!B.size) return 0; let c=0; for(const t of A) if(B.has(t)) c++; return c/Math.min(A.size,B.size); }
 function sameDate(a,b){ return (a||"") === (b||""); }
 
-function parseTimes(s){ const set=new Set(); (s||"").split(",").map(x=>x.trim()).filter(Boolean).forEach(t=>set.add(t)); return set; }
+function parseTimes(s){
+  const set=new Set();
+  (s||"").split(",").map(x=>x.trim()).filter(Boolean).forEach(t=>{
+    const m=/^(\d{1,2}):(\d{2})$/.exec(t);
+    if(m){ const hh=Number(m[1]); const mm=Number(m[2]); if(hh>=0 && hh<=23 && mm>=0 && mm<=59){ set.add(`${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`); } }
+  });
+  return set;
+}
+function timesOverlap(a, b, tolMin=5){
+  const A=[...parseTimes(a)].map(t=>{const [h,m]=t.split(":");return Number(h)*60+Number(m);});
+  const B=[...parseTimes(b)].map(t=>{const [h,m]=t.split(":");return Number(h)*60+Number(m);});
+  if(!A.length || !B.length) return false;
+  for(const x of A) for(const y of B) if (Math.abs(x-y) <= tolMin) return true;
+  return false;
+}
 function mergeTimes(a,b){ const out=parseTimes(a); for(const t of parseTimes(b)) out.add(t); return Array.from(out).sort().join(", "); }
+
+function slugTokens(u){
+  const p = (typeof u === "string" && u) ? urlPath(u) : "";
+  const seg = p ? p.split("/").filter(Boolean).pop() || "" : "";
+  return new Set(seg.split(/[^a-z0-9]+/g).filter(Boolean));
+}
 
 // Quality score WITHOUT Image URL; prefer Payment/Time/Category/Venue presence
 function scoreQuality(e){
@@ -253,6 +288,16 @@ function scoreQuality(e){
   if ((e.Category||"").trim()) s += 1;
   if ((e.Venue||"").trim()) s += 1;
   return s;
+}
+
+function chooseSource(aSrc, bSrc){
+  const rank = (s) => {
+    const t = (s||"").toLowerCase();
+    if (t.includes("zoom")) return 2;
+    if (t.includes("lublin.eu") || t.includes("official")) return 1;
+    return 0;
+  };
+  return rank(aSrc) >= rank(bSrc) ? aSrc : bSrc;
 }
 
 function pickBetter(a, b){
@@ -283,15 +328,26 @@ function pickBetter(a, b){
   if (!winner.Category && other.Category) winner.Category = other.Category;
   if (!winner.Venue && other.Venue) winner.Venue = other.Venue;
 
+  // Prefer higher-priority Source (Zoom > Official)
+  winner.Source = chooseSource(winner.Source, other.Source);
+
   return winner;
 }
 
+function ensureCache(e){
+  if (!e._fp_url) e._fp_url = urlPath(e.Link);
+  if (!e._norm_title) e._norm_title = tokenSet(e.Title || "");
+  if (!e._slug_tokens) e._slug_tokens = slugTokens(e._fp_url || e.Link || "");
+}
+
 function dedupe(list, stats){
-  stats = stats || { merges: 0, time_merges: 0 };
+  stats = stats || { merges: 0, time_merges: 0, fallback_merges: 0 };
   const out = [];
   const keyToIdx = new Map();
 
   for (const e of list) {
+    ensureCache(e);
+
     const d = e.Date || "";
     const urlCore = e._fp_url || urlPath(e.Link);
     const tdvCore = e._fp_tdv || titleDateVenueKey(e);
@@ -305,8 +361,24 @@ function dedupe(list, stats){
       for (let i = 0; i < out.length; i++) {
         const ex = out[i];
         if (!sameDate(d, ex.Date || "")) continue;
-        if (overlap(e.Title || "", ex.Title || "") >= 0.85 &&
-            overlap(e.Venue || "", ex.Venue || "") >= 0.60) { idx = i; break; }
+
+        // Ensure cache on candidate
+        ensureCache(ex);
+
+        // Primary rule: both have Venue → use existing title+venue overlap thresholds
+        const bothHaveVenue = (e.Venue||"").trim() && (ex.Venue||"").trim();
+        if (bothHaveVenue) {
+          if (overlap(e.Title || "", ex.Title || "") >= 0.85 &&
+              overlap(e.Venue || "", ex.Venue || "") >= 0.60) { idx = i; break; }
+        } else {
+          // Fallback rule (venue-less): Date equal AND times overlap AND (title OR slug sufficiently similar)
+          const timesOk = timesOverlap(e.Time, ex.Time, 5);
+          if (timesOk) {
+            const titleJac = jaccardSets(e._norm_title, ex._norm_title);  // very strict
+            const slugJac  = jaccardSets(e._slug_tokens, ex._slug_tokens);
+            if (titleJac >= 0.92 || slugJac >= 0.70) { idx = i; stats.fallback_merges++; break; }
+          }
+        }
       }
     }
 

@@ -75,7 +75,8 @@ function refresh() {
     let label = 'src';
     const s = String(ps.source || '');
     if (s.startsWith('[binding:L_ZOOM]') || /zoom/i.test(s)) label = 'zoom';
-    else if (s.startsWith('[binding:L_OFFICIAL]') || /lublin\.eu|official/i.test(s)) label = 'lublin';
+    //else if (s.startsWith('[binding:L_OFFICIAL]') || /lublin\.eu|official/i.test(s)) label = 'lublin';
+    else if (s.startsWith('[binding:L_OFFICIAL]') /*|| /official/i.test(s)*/ ) label = 'official';
     else {
       try { label = (new URL(s)).hostname; } catch (e) { label = s; }
     }
