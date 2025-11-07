@@ -38,3 +38,4 @@
 - After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
 - After `materialize()`: `events` has valid `start_dt/end_dt`, payment normalized to `free|paid|unknown`.
 - `taxonomy_unmapped` grows early; curate via `taxonomy_map`/`taxonomy_alias`.
+- Check dedupe_stats: if fallback merges < X%, review thresholds; log pairs merged without venue to a review file/sheet.
