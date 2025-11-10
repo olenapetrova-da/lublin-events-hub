@@ -1,0 +1,52 @@
+Context
+Repo: https://github.com/olenapetrova-da/lublin-events-hub
+Commit: v0.3.0-rc.2
+Task: #2 Implement materialize() (raw_events → events)
+
+Goal / DoD:
+- Read `raw_events` (9 cols): Title | Date | Time | Venue | Category | Link | Payment for Entry | Source | _EndDate
+- Build `events` with 9 cols: event_id | title | start_dt | end_dt | venue | payment | categories | source | url
+- Rules:
+  - start_dt: combine Date + earliest time (if any); else Date at 00:00; ISO 8601 with Europe/Warsaw offset
+  - end_dt: use _EndDate; if Time exists and has multiple values, keep end_dt at Date/_EndDate 23:59 (don’t expand to multiple rows)
+  - payment: map {Bezpłatny|No → free, Płatny|Yes → paid, else → unknown}
+  - categories: map Category via `taxonomy_map` (match_type: exact|contains|regex), then apply `taxonomy_alias`; join multi hits with `|`
+  - log any unmapped raw labels to `taxonomy_unmapped` with columns: source, raw_label, count (incremental)
+  - event_id: sha1( source + '|' + normalize(title) + '|' + start_dt + '|' + normalize(venue) )
+- One pass, batch read & batch write (overwrite whole `events` tab); no external calls
+
+Focus files (review these only):
+docs/adr/ADR-0005-data-model-raw-to-normalized.md
+docs/adr/ADR-0007-payment-value-at-adapter-output.md
+docs/adr/ADR-0008-enrichment-fields.md
+docs/adr/ADR-0009-enddate-and-source-policy.md
+apps_script/Lublin_events_DB_AppScript/refresh.js         # for input shape reference
+apps_script/Lublin_events_DB_AppScript/materialize.js     # create/replace in this task
+apps_script/Lublin_events_DB_AppScript/taxonomy.gs        # helpers for mapping (update if needed)
+
+Spreadsheet tabs (assume exist):
+- raw_events
+- events
+- taxonomy_map (source, source_key, source_label, match_type, canonical)
+- taxonomy_alias (alias, canonical)
+- taxonomy_unmapped (source, raw_label, count)
+
+Question:
+1) Write `materialize()` (Apps Script): read raw_events → produce events per the DoD above; include small helpers:
+   - normalizeTitle/normalizeVenue (trim, collapse spaces, remove diacritics)
+   - toISO(date, time, tz="Europe/Warsaw")
+   - mapPayment(value) and mapCategories(value, source)
+   - sha1(str) → hex
+2) Add `upsertUnmapped(rawLabel, source)` that increments a counter in `taxonomy_unmapped`.
+3) Make the function idempotent and fast: one batch read, one batch write, no per-row calls. Add minimal logging (rows in/out, unmapped count).
+4) Provide a short test plan: 6 sample raw rows that hit edge cases (multi-time, multi-day with no times, Polish labels, Yes/No, empty time, strange venue), expected outputs for each, and how to verify in Sheets.
+
+Constraints:
+- No schema changes, no new sheets, no external services
+- Keep timezone Europe/Warsaw; output ISO strings with offset (+01:00 or +02:00 depending on date)
+- Do not expand multi-time rows into multiple rows; keep a single row with earliest time for start_dt
+
+Deliverables:
+- Final `materialize.js` code block ready to paste
+- Any tiny additions to `taxonomy.gs` (if you reuse helpers, include them)
+- Test checklist + sample inputs/expected outputs
