@@ -21,44 +21,17 @@ Write-Host "ZOOM   = $ZOOM"
 Write-Host "OFFICIAL = $OFFICIAL"
 
 
-----
 
-$zoomUrl = ($ZOOM.TrimEnd('/') + "/?date=$DATE&$BASE")
-Write-Host "Zoom URL => $zoomUrl"
-
-# Quick HTTP check (status + small snippet)
-$zoomRaw = Invoke-WebRequest -UseBasicParsing -Headers @{Accept="application/json"} -Uri $zoomUrl -Method GET
-$zoomRaw.StatusCode
-$zoomRaw.Content.Substring(0, [Math]::Min(400, $zoomRaw.Content.Length))
-
-# Parse JSON and peek fields
-$zoom = $zoomRaw.Content | ConvertFrom-Json
-$zoom | Select-Object source, pages_scanned, budget_used, budget_max, budget_exhausted, count
-$zoom.events | Select-Object -First 3 `
-  Title, Date, Time, Venue, Category, Link, @{Name='Payment for Entry';Expression={$_.'Payment for Entry'}}, Source, _EndDate
+$zoomEnrichUrl = ($ZOOM.TrimEnd('/') + "/?date=$DATE&$BASE&enrich=1&enrich_max=10")
+Write-Host "<$zoomEnrichUrl>"   # quick visual check, angle brackets reveal stray spaces
+$zoomEnrich = Get-Json $zoomEnrichUrl
+$zoomEnrich | Select source, enriched, budget_used, budget_max, budget_exhausted, count
+$zoomEnrich.events | Select -First 5 Title, @{N='Payment for Entry';E={$_.('Payment for Entry')}}, Time, Venue
   
-  ------
+
   
-$officialUrl = ($OFFICIAL.TrimEnd('/') + "/?date=$DATE&$BASE")
-Write-Host "Official URL => $lublinUrl"
-
-$officialRaw = Invoke-WebRequest -UseBasicParsing -Headers @{Accept="application/json"} -Uri $officialUrl -Method GET
-$officialRaw.StatusCode
-$official = $officialRaw.Content | ConvertFrom-Json
-$official | Select-Object source, pages_scanned, budget_used, budget_max, budget_exhausted, count
-$official.events | Select-Object -First 3 `
-  Title, Date, Time, Venue, Category, Link, @{Name='Payment for Entry';Expression={$_.'Payment for Entry'}}, Source, _EndDate
-  
-  ---
-
-$hubUrl = ($HUB.TrimEnd('/') + "/?date=$DATE&$BASE")
-Write-Host "Hub URL => $hubUrl"
-
-$hubRaw = Invoke-WebRequest -UseBasicParsing -Headers @{Accept="application/json"} -Uri $hubUrl -Method GET
-$hub = $hubRaw.Content | ConvertFrom-Json
-
-$hub | Select-Object source, sources_count, received, deduped, count
-$hub.per_source | Format-Table source, got, ok, status
-$hub.events | Select-Object -First 5 `
-  Title, Date, Time, Venue, Category, Source, _EndDate, @{Name='Payment for Entry';Expression={$_.'Payment for Entry'}}, Sources
-  
+$officialEnrichUrl = ($OFFICIAL.TrimEnd('/') + "/?date=$DATE&$BASE&enrich=1&enrich_max=10")
+Write-Host "<$officialEnrichUrl>"
+$officialEnrich = Get-Json $officialEnrichUrl
+$officialEnrich | Select source, enriched, budget_used, budget_max, budget_exhausted, count
+$officialEnrich.events | Select -First 5 Title, @{N='Payment for Entry';E={$_.('Payment for Entry')}}, Time, Venue
