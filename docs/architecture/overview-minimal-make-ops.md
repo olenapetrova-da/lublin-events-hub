@@ -54,7 +54,7 @@ flowchart TD
 
 ## Responsibilities
 - **Adapters (official, zoom)**: scrape, minimal normalization; zoom carries `_EndDate`.
-- **hub**: merge sources, dedupe showtimes; JSON mode when `sheet=0`.
+- **hub**: merge sources, dedupe showtimes; JSON mode when `sheet=0`. When venue is missing on one side, apply fallback dedupe (date/time + title/slug similarity).
 - **Apps Script**: refresh/materialize/query; category mapping via Sheets taxonomy.
 - **Sheets**: data store (`raw_events` staging → `events` normalized).  
 - **Make**: chat glue only (parse → HTTP → send).
