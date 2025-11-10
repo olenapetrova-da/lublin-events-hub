@@ -1,9 +1,9 @@
 # Refresh Runbook
 
 ## Daily flow
-1) Apps Script `refresh()` calls hub once for a 7-day window (`sheet=0&group_times=1&pages=3&limit=1000`).
-2) Write `raw_events` (**9 cols**). If `_EndDate` missing, set `_EndDate = Date`.
-3) Run `materialize()` → writes `events`.
+1) `refresh()` calls Hub for a 7-day window (`sheet=0&group_times=1&pages=3&limit=1000`) and writes **raw_events (9 cols)**.  
+2) `materialize()` reads `raw_events` and overwrites **events (9 cols)** per ADR-0005.  
+3) (Next task) API `doGet` serves from **events**.
 
 ---
 
@@ -18,6 +18,7 @@
 ## Logs & telemetry
 - Hub/refresh log prints: `include_in_progress` and a compact `per_source` summary (e.g., `zoom:58; lublin:51`).
 - Adapters/hub should also populate: `pages_scanned`, `budget_used`, `has_more`, `stopped_reason`.
+- Log `materialize(): in=X out=Y unmapped_seen=Z` in Apps Script execution log. :contentReference[oaicite:9]{index=9}
 
 ## Zoom source specifics
 - Zoom includes `/w-trakcie/` (ongoing) by default when `include_in_progress=1`; this can increase counts even with the same date window.
@@ -35,7 +36,11 @@
 - Apps Script will keep the last successful `events` table; consider a `"stale": true` flag in the API if last refresh > 24h.
 
 ## Verification checklist
-- After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
-- After `materialize()`: `events` has valid `start_dt/end_dt`, payment normalized to `free|paid|unknown`.
-- `taxonomy_unmapped` grows early; curate via `taxonomy_map`/`taxonomy_alias`.
+1) After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
+2) After `materialize()`: 
+- `events` has valid `start_dt/end_dt`, payment normalized to `free|paid|unknown`.
+- `events` row count ≥ `raw_events` (dedupe/merges earlier may reduce raw).
+- Random row: timestamp offsets match `Europe/Warsaw` (e.g., `+01:00` in November).  
+- **Payment**: expect `unknown` for rows where list lacked payment (daily path). To improve coverage, run weekly enrichment tasks E-Z1/E-O1 (Hub with `enrich=1`).  
+- **taxonomy_unmapped**: only grows on new labels; curate via `taxonomy_map` & `taxonomy_alias`.
 - Check dedupe_stats: if fallback merges < X%, review thresholds; log pairs merged without venue to a review file/sheet.
