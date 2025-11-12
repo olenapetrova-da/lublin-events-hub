@@ -103,7 +103,7 @@ More detail: docs/specs/query-api.md.
     - E-Z1 (Zoom): run Hub with enrich=1&enrich_max=25; patch Payment (and missing Time/Venue) into raw_events; re-materialize.
     - E-O1 (Official): same as above for lublin.eu.
     - Payment mapping is performed in materialize(); acquisition happens in enrichment runs.
-
+See `docs/runbooks/refresh-runbook.md` for OPS-TR1 details.
 Tasks live in Notion backlog; see also ADRs below.
 
 ## ADRs (selected)
