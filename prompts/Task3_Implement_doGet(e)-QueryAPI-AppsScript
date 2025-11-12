@@ -1,0 +1,107 @@
+Context
+Repo: https://github.com/olenapetrova-da/lublin-events-hub
+Release: v0.3.0-rc.3
+Task: #3 Implement doGet(e) Query API (Apps Script)
+
+Goal / DoD
+- Serve JSON from the normalized `events` sheet, but include **display fields** that users see:
+  • `date` (YYYY-MM-DD),  • `times` (comma string from raw_events),
+  • plus title, payment, categories, venue, url, source.
+- Use `events.start_dt/end_dt` only for logic (range overlap, DST-safe sorting).
+- Sorting: per ADR-0011 — timed first → date asc → earliest time asc → title asc.
+- JSON contract stable; CORS; clear 400/500 errors; 5 smoke tests.
+- Daily automation (OPS-TR1) already runs refresh+materialize; `doGet` reads the **fresh `events`**.
+- On exception: email Script Property `ALERT_EMAIL`.
+
+Dependencies (assume done)
+- `materialize()` implemented (events columns below)
+- Script Properties: `SHEET_ID`, `TZ="Europe/Warsaw"`, `ALERT_EMAIL` (optional)
+- Web App deployment will be done after code is ready
+
+Input sheets
+- `events` (9 cols): event_id | title | start_dt | end_dt | venue | payment | categories | source | url
+- `raw_events` (9 cols): Title | Date | Time | Venue | Category | Link | Payment for Entry | Source | _EndDate
+- `taxonomy_alias` (alias, canonical) — used to map request categories to canonical for filtering
+
+API — Request (query params)
+- date: YYYY-MM-DD (required unless start+end provided)
+- period: day|week|range|weekend (default: day)
+- days: int (used only if period=range and start/end not provided)
+- start, end: YYYY-MM-DD (explicit window; when both present, ignore period/days)
+- payment: any|free|paid|unknown (default any)
+- category: comma list; map via taxonomy_alias → canonical; match if any present in event’s pipe-joined categories
+- source: optional filter (comma list of hostnames)
+- limit: int (default 20, max 100)
+- offset: int (default 0)
+- tz: optional override for formatting if ever needed (default Script Property TZ)
+
+API — Response (JSON)
+{
+  "ok": true,
+  "start": "YYYY-MM-DD",
+  "end": "YYYY-MM-DD",
+  "total": <int>,            // matches BEFORE pagination
+  "limit": <int>,
+  "offset": <int>,
+  "next_offset": <int|null>,
+  "results": [
+    {
+      // DISPLAY FIELDS (for users/bot)
+      "date": "YYYY-MM-DD",
+      "title": "...",
+      "times": "09:30, 11:30",
+      "payment": "free|paid|unknown",
+      "categories": "kids|music",
+      "venue": "...",
+      "source": "zoom.lublin.pl",
+      "url": "https://...",
+
+      // TECH FIELDS (useful to clients; not required for display)
+      "event_id": "...",
+      "start_dt": "YYYY-MM-DDTHH:MM:SS+01:00",
+      "end_dt":   "YYYY-MM-DDTHH:MM:SS+01:00"
+    }
+  ]
+}
+
+Required behaviors
+- Window:
+  • period=day → [date,date]
+  • period=week → [date,date+6]
+  • period=weekend → Sat/Sun window that contains `date`
+  • period=range or (start&end) → use explicit
+- Load:
+  • Read all rows from `events` once.
+  • Build an index from `raw_events` to supply `times` by key `(Source, Link, Date)` (case-sensitive on URL host; Date ISO).
+- Filtering:
+  • Overlap rule: include if `event.end_dt_date >= start && event.start_dt_date <= end` (date parts only).
+  • Apply `payment` unless `any`.
+  • Map request `category` via `taxonomy_alias` → canonical; keep event if any requested canonical is contained in event’s pipe-joined `categories`.
+  • Apply `source` filter if provided.
+- Sorting (ADR-0011):
+  1) **timed first** — treat as “timed” if the time portion of `start_dt` is not `00:00:00`
+  2) by **date** (YYYY-MM-DD from `start_dt`)
+  3) by **time** (HH:MM from `start_dt`) for timed items
+  4) by **title** A→Z (Polish locale, case-insensitive)
+- Pagination: slice by limit/offset; `next_offset = (offset+limit < total ? offset+limit : null)`.
+- Response fields exactly as shown. Include CORS header `Access-Control-Allow-Origin: *`.
+- Logging: one line per request, e.g.  
+  `doGet window=YYYY-MM-DD..YYYY-MM-DD, pay=any, cat=[kids], src=[], total=42, page=20/0`
+- On exception: return `{ok:false, error:"..."}` with HTTP 500 and send an email to `ALERT_EMAIL` if set.
+
+What to deliver
+1) Full `apps_script/Lublin_events_DB_AppScript/api_doGet.js` with:
+   - `doGet(e)`
+   - helpers: `parseParams()`, `computeWindow()`, `loadEvents()`, `loadTimesIndex()`, `mapAliases()`, `filterBy*`, `sortPerADR0011()`, `json()`, `sendAlert()`
+2) 5 smoke-test URLs (placeholders), with what to eyeball:
+   - day window (payment=any)
+   - week window (payment=free)
+   - weekend (category=kids,music)
+   - explicit start/end
+   - pagination (limit=5&offset=5)
+3) One-paragraph README stub for the API parameters (for docs/specs later)
+
+Constraints / Notes
+- **Do not change schemas.** `events` provides logic fields; `raw_events` provides `times` for display.
+- Keep timezone Europe/Warsaw; do not mutate stored ISO strings.
+- Default `payment=any` so users see results even before weekly enrichment jobs (E-Z1/E-O1) increase coverage.
