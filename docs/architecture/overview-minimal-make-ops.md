@@ -1,5 +1,5 @@
 # Architecture — Minimal Make Ops (big picture)
-*Updated:* 2025-10-29
+*Updated:* 2025-11-12
 
 This file is the **single place** for the big-picture diagram and flow. ADRs hold individual decisions; Strategy holds the step-by-step plan.
 
@@ -46,9 +46,11 @@ flowchart TD
 
 ### B) Serve (per user request, 1 HTTP in Make)
 1. Telegram → Make parses user text → query params.  
-2. Make does **1 HTTP** to **doGet(e)** (Apps Script).  
-3. Apps Script filters `events` (date/period/payment/category), paginates, returns JSON.  
-4. Make formats and **sends message**.
+2. Write **staging** → `raw_events` (**9 columns**, includes `_EndDate`).
+3. Apps Script filters `events` (date/period/payment/category), paginates, returns JSON.   
+Telegram/Make calls: **parse → 1 HTTP → send**.
+4. Apps Script Web App **Query API** reads normalized `events` for logic and attaches display `times` from `raw_events`. 
+5. Make formats and **sends message**.
 
 ---
 
@@ -73,11 +75,11 @@ flowchart TD
 ---
 
 ## Data model (summary)
-- **raw_events (10)**: Title, Date, Time, Venue, Category, Link, Image URL, Payment for Entry, Source, `_EndDate`.
-- **events (9)**: event_id, title, start_dt, end_dt, venue, payment, categories, source, url.
+- **raw_events (9):** Title, Date, Time, Venue, Category, Link, Payment for Entry, Source, `_EndDate`.
+- **events (9):** event_id, title, start_dt, end_dt, venue, payment, categories, source, url.
 
-**Full rules:** see ADR‑0005.  
-**API contract:** see ADR‑0014.
+**Full rules:** see ADR-0005.  
+**API contract:** see ADR-0013.
 
 ---
 
@@ -85,8 +87,9 @@ flowchart TD
 - High‑level decision: ADR‑0003.  
 - Hub JSON mode: ADR‑0004.  
 - Data model details: ADR‑0005.  
-- Query API: ADR‑0014.  
-- Step‑by‑step plan: `docs/strategy/v4.md`.
+- Query API: ADR-0013.  
+- Step-by-step plan: `docs/strategy/v4.md`.
+
 
 ---
 

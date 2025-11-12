@@ -17,8 +17,9 @@
 ---
 ## Logs & telemetry
 - Hub/refresh log prints: `include_in_progress` and a compact `per_source` summary (e.g., `zoom:58; lublin:51`).
-- Adapters/hub should also populate: `pages_scanned`, `budget_used`, `has_more`, `stopped_reason`.
-- Log `materialize(): in=X out=Y unmapped_seen=Z` in Apps Script execution log. :contentReference[oaicite:9]{index=9}
+- Adapters/Hub also populate: `pages_scanned`, `budget_used`, `has_more`, `stopped_reason`.
+- Apps Script should log: `materialize(): in=<raw_rows> out=<events_rows> unmapped_seen=<n>`.
+
 
 ## Zoom source specifics
 - Zoom includes `/w-trakcie/` (ongoing) by default when `include_in_progress=1`; this can increase counts even with the same date window.
@@ -37,6 +38,18 @@
 
 ## Verification checklist
 1) After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
+2) After `materialize()`:
+   - `events` row count **equals** `raw_events` (1:1 transform).
+   - Timestamps carry the correct `Europe/Warsaw` offset (e.g., `+01:00` in November).
+   - Payment is normalized to `free|paid|unknown`; `unknown` is expected on daily runs.
+   - `taxonomy_unmapped` only grows on new labels; curate via `taxonomy_map` & `taxonomy_alias`.
+   - Check `dedupe_stats` in the Hub response; if problematic pairs remain, review thresholds.
+3) API `doGet`:
+   - `ok=true`, results include `date` and `times`.
+   - Order: dates increasing; within a date, timed first, earlier times first; then title A→Z.
+   - Weekend window works; filters/pagination behave as documented.
+
+1) After `refresh()`: `raw_events` non-empty; columns match the **9-col** spec.
 2) After `materialize()`: 
 - `events` has valid `start_dt/end_dt`, payment normalized to `free|paid|unknown`.
 - `events` row count ≥ `raw_events` (dedupe/merges earlier may reduce raw).
@@ -44,3 +57,14 @@
 - **Payment**: expect `unknown` for rows where list lacked payment (daily path). To improve coverage, run weekly enrichment tasks E-Z1/E-O1 (Hub with `enrich=1`).  
 - **taxonomy_unmapped**: only grows on new labels; curate via `taxonomy_map` & `taxonomy_alias`.
 - Check dedupe_stats: if fallback merges < X%, review thresholds; log pairs merged without venue to a review file/sheet.
+
+## API checks (doGet)
+- Ping: `/exec?date=YYYY-MM-DD&period=day&limit=3` → `ok=true`, results have `date`, `times`.
+- Order: dates increasing; within the same date, timed first, earlier times first.
+- Weekend: `period=weekend` returns Sat/Sun around `date`.
+- Filters: `payment=free` (coverage improves after E-Z1/E-O1), `category=kids`.
+- Pagination: `next_offset` present until the end.
+ 
+**Troubleshooting**: 
+- 400 for bad params; 500 logs + email if `ALERT_EMAIL` set.
+- If `times` missing but event is timed: verify `raw_events` has matching `(Source, Link, Date)`.
