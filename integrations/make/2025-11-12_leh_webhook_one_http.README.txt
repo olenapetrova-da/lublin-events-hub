@@ -1,0 +1,9 @@
+This file uses placeholders and must be sanitized before import.
+
+Replace:
+  <MAKE_WEBHOOK_URL>  → your Make Custom Webhook URL
+  <WEB_APP_URL>       → your Apps Script Web App /exec URL
+
+Do NOT commit real URLs. If a webhook URL is ever exposed, rotate it in Make
+(create a new webhook, update clients, delete the old one). Optionally require
+a shared token (e.g., query param or X-LEH-Token header) and validate it.

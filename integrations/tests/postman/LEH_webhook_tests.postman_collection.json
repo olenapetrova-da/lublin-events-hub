@@ -7,7 +7,7 @@
 	},
 	"item": [
 		{
-			"name": <MAKE_WEBHOOK_URL>,
+			"name": "<MAKE_WEBHOOK_URL>",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -27,7 +27,7 @@
 					}
 				},
 				"url": {
-					"raw": <MAKE_WEBHOOK_URL>,
+					"raw": "<MAKE_WEBHOOK_URL>",
 					"protocol": "https",
 					"host": [
 						"hook",

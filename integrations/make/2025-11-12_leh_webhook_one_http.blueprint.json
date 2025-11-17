@@ -222,7 +222,7 @@
                         "value": "{{if(length(trim(ifempty(3.category; ))) > 0; 3.category; )}}"
                     }
                 ],
-                "url": <WEB_APP_URL>,
+                "url": "<WEB_APP_URL>",
                 "gzip": true,
                 "method": "get",
                 "headers": [],
