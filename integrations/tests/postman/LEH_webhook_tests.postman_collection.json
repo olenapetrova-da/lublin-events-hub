@@ -1,0 +1,46 @@
+{
+	"info": {
+		"_postman_id": "5c921dc5-9020-48d7-95e2-0f7c6178b1e5",
+		"name": "Lublin events",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "44443438"
+	},
+	"item": [
+		{
+			"name": <MAKE_WEBHOOK_URL>,
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"period\": \"day\",\r\n  \"date\": \"2025-11-18\",\r\n  \"category\": \"film\",\r\n  \"limit\": 5,\r\n  \"offset\": 0,\r\n  \"text\": \"day kids\"\r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": <MAKE_WEBHOOK_URL>,
+					"protocol": "https",
+					"host": [
+						"hook",
+						"eu2",
+						"make",
+						"com"
+					],
+					"path": [
+						"wnkwkoodpe2wgaqju66lpkbd31tjvuct"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

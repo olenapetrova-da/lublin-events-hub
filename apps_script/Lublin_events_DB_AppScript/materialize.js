@@ -164,12 +164,27 @@ function toISO(yyyyMmDd, hhmm, tz) {
   if (hhmm && /^\d{1,2}:\d{2}$/.test(hhmm)) {
     const t = hhmm.split(':'); h = +t[0]; min = +t[1];
   }
-  // Build as UTC then format in tz (ensures DST offset is correct)
-  const d = new Date(Date.UTC(year, mon-1, day, h, min, 0));
-  // 2025-11-08T10:00:00+0100
-  const base = Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm:ssZ");
-  // Insert colon into offset
+
+  // First guess: same clock time as UTC
+  let guess = new Date(Date.UTC(year, mon - 1, day, h, min, 0));
+  // Offset for the intended local time
+  let off = tzOffsetMinutes(tz, guess);
+  let local = new Date(guess.getTime() - off * 60000);
+  // One more pass in case DST flips at this instant
+  const off2 = tzOffsetMinutes(tz, local);
+  if (off2 !== off) local = new Date(guess.getTime() - off2 * 60000);
+
+  const base = Utilities.formatDate(local, tz, "yyyy-MM-dd'T'HH:mm:ssZ");
   return base.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+}
+
+function tzOffsetMinutes(tz, date) {
+  const z = Utilities.formatDate(date, tz, 'Z'); // e.g. +0100
+  const m = /([+-])(\d{2})(\d{2})/.exec(z);
+  const sign = (m && m[1] === '-') ? -1 : 1;
+  const hh = m ? parseInt(m[2], 10) : 0;
+  const mm = m ? parseInt(m[3], 10) : 0;
+  return sign * (hh * 60 + mm);
 }
 
 // Parse times cell:
