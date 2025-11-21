@@ -1,5 +1,5 @@
 # Architecture — Minimal Make Ops (big picture)
-*Updated:* 2025-11-12
+*Updated:* 2025-11-21
 
 This file is the **single place** for the big-picture diagram and flow. ADRs hold individual decisions; Strategy holds the step-by-step plan.
 
@@ -9,8 +9,8 @@ This file is the **single place** for the big-picture diagram and flow. ADRs hol
 ```mermaid
 flowchart TD
   subgraph Sources
-    A1[lublin.eu - official adapter]
-    A2[zoom.lublin.pl - zoom adapter]
+    A1[lublin.eu — official adapter]
+    A2[zoom.lublin.pl — zoom adapter]
   end
 
   A1 --> H[hub: merge/dedupe\nJSON when sheet=0]
@@ -19,21 +19,29 @@ flowchart TD
   subgraph AppsScript
     R[refresh]
     M[materialize]
-    Q[doGet - Query API]
+    Q[doGet — Query API]
   end
 
   H --> R --> S1[raw_events]
   S1 --> M --> S2[events]
   Q --> S2
 
-  subgraph Make_Telegram
-    T1[Parse user text -> params]
-    T2[HTTP -> Apps Script API]
-    T3[Send Message]
+  subgraph Make_Clients
+    subgraph Phase_A_Webhook
+      W1[Custom Webhook]
+      W2[HTTP → API]
+      W3[Webhook Response]
+    end
+    subgraph Phase_B_Telegram
+      B1[Telegram buttons]
+      B2[HTTP → API]
+      B3[Send Message]
+    end
   end
 
-  Q <-->|JSON| T2
-```
+  Q <-->|JSON| W2
+  Q <-->|JSON| B2
+
 
 ---
 
@@ -41,16 +49,22 @@ flowchart TD
 
 ### A) Refresh (daily, zero Make ops)
 1. **refresh()** calls hub once (7‑day window, `sheet=0`, `group_times=1`).
-2. Write **staging** → `raw_events` (10 columns incl. `_EndDate`).
+2. Write **staging** → `raw_events` (9 columns incl. `_EndDate`).
 3. **materialize()** reads `raw_events`, normalizes, writes **`events`**.
 
 ### B) Serve (per user request, 1 HTTP in Make)
-1. Telegram → Make parses user text → query params.  
-2. Write **staging** → `raw_events` (**9 columns**, includes `_EndDate`).
+1. The client (Webhook or Telegram buttons) provides date/period and optional category.  
+2. Make performs one GET to the Query API with those params.
 3. Apps Script filters `events` (date/period/payment/category), paginates, returns JSON.   
 Telegram/Make calls: **parse → 1 HTTP → send**.
 4. Apps Script Web App **Query API** reads normalized `events` for logic and attaches display `times` from `raw_events`. 
 5. Make formats and **sends message**.
+
+## User path
+- **Phase A — Webhook**: parse minimal input → 1 HTTP → respond (no Telegram).
+- **Phase B — Telegram bot**: button-only, one HTTP per request, no state/pagination.
+
+All taxonomy and sorting stay in the API; Make only passes params and formats display lines.
 
 ---
 
@@ -59,7 +73,7 @@ Telegram/Make calls: **parse → 1 HTTP → send**.
 - **hub**: merge sources, dedupe showtimes; JSON mode when `sheet=0`. When venue is missing on one side, apply fallback dedupe (date/time + title/slug similarity).
 - **Apps Script**: refresh/materialize/query; category mapping via Sheets taxonomy.
 - **Sheets**: data store (`raw_events` staging → `events` normalized).  
-- **Make**: chat glue only (parse → HTTP → send).
+- **Make**: chat glue only (parse/buttons → HTTP → send).
 
 ---
 
@@ -97,5 +111,5 @@ Telegram/Make calls: **parse → 1 HTTP → send**.
 - [ ] Script Properties: hub URL, sheet ID, timezone.  
 - [ ] Time trigger for `refresh()` (daily).  
 - [ ] Web App deployed → note URL.  
-- [ ] Make scenario: parse → HTTP → send.  
+- [ ] Make scenarios: Phase A (Webhook) and Phase B (Telegram buttons) built.
 - [ ] Taxonomy tables maintained; review `taxonomy_unmapped`.
