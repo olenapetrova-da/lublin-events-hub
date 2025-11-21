@@ -63,7 +63,7 @@
       "title": "…",
       "times": "09:30, 11:30",
       "payment": "free|paid|unknown",
-      "categories": "kids|music",
+      "categories": "film|theatre",
       "venue": "…",
       "source": "zoom.lublin.pl",
       "url": "https://…",
@@ -128,7 +128,7 @@ This replicates ADR-0011 intent and current code behavior.
 
 6) **Logging & alerts**
 - Log a single line per request, e.g.:
-doGet window=2025-11-12..2025-11-18 pay=any cat=[kids] src=[] total=42 page=20/0
+doGet window=2025-11-12..2025-11-18 pay=any cat=[film] src=[] total=42 page=20/0
 - On exception, send an email to Script Property ALERT_EMAIL (if set) with the error/stack.
 
 ## Examples
