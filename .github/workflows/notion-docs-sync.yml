@@ -31,3 +31,4 @@ jobs:
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           # Notion recommends versioned requests; adjust if needed.
           NOTION_VERSION: "2025-09-03"
+          FULL_SYNC: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
