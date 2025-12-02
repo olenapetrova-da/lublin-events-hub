@@ -1,0 +1,33 @@
+name: Sync docs to Notion
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "docs/adr/**"
+      - ".github/workflows/notion-docs-sync.yml"
+      - "scripts/notion-sync.js"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: node scripts/notion-sync.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          # Notion recommends versioned requests; adjust if needed.
+          NOTION_VERSION: "2025-09-03"
