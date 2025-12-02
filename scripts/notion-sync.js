@@ -4,8 +4,25 @@ const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
 const NOTION_VERSION = process.env.NOTION_VERSION || "2025-09-03";
 const GH_TOKEN = process.env.GITHUB_TOKEN;
 const GH_REPO = process.env.GITHUB_REPOSITORY; // "owner/repo"
+
+/* adding a possibility of a manual full sync - Replace how BEFORE is set - START */ 
+const fs = require("node:fs");
+
 const AFTER = process.env.GITHUB_SHA;
-const BEFORE = process.env.GITHUB_EVENT_BEFORE || ""; // may be empty if manually run
+const FULL_SYNC = process.env.FULL_SYNC === "1";
+const DOCS_ROOT = "docs/adr/";
+
+const EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
+let BEFORE = "";
+try {
+  if (EVENT_PATH && fs.existsSync(EVENT_PATH)) {
+    const payload = JSON.parse(fs.readFileSync(EVENT_PATH, "utf8"));
+    BEFORE = payload.before || "";
+  }
+} catch {
+  BEFORE = "";
+}
+/* adding a possibility of a manual full sync - Replace how BEFORE is set - END */ 
 
 if (!NOTION_TOKEN || !NOTION_DATABASE_ID || !GH_TOKEN || !GH_REPO || !AFTER) {
   console.error("Missing env vars. Need NOTION_TOKEN, NOTION_DATABASE_ID, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA.");
@@ -95,11 +112,42 @@ async function createOrUpdate({ dataSourceId, pathValue, shaValue }) {
 
 async function run() {
   // Changed docs since last push (fast, avoids scanning entire repo)
-  // If BEFORE is empty (manual run), fall back to scanning whole repo tree (not implemented here).
-  if (!BEFORE) {
-    console.log("No BEFORE SHA (manual run). Re-run via push, or extend script to do full tree scan.");
-    process.exit(0);
+/* Replace the “manual run” early-exit block with a full-sync branch START */
+    const { execSync } = require("node:child_process");
+
+  // FULL_SYNC path (initial sync) OR when we don't have a meaningful BEFORE SHA
+  if (FULL_SYNC || !BEFORE) {
+    const out = execSync(`git ls-tree -r ${AFTER} -- ${DOCS_ROOT}`, { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+
+    const files = out
+      .map((line) => {
+        // Format: "<mode> <type> <sha>\t<path>"
+        const [left, path] = line.split("\t");
+        const parts = left.split(" ");
+        const type = parts[1];
+        const sha = parts[2];
+        return { type, sha, path };
+      })
+      .filter((x) => x.type === "blob" && x.path.startsWith(DOCS_ROOT) && (x.path.endsWith(".md") || x.path.endsWith(".mdc")));
+
+    if (files.length === 0) {
+      console.log(`No files found under ${DOCS_ROOT}`);
+      return;
+    }
+
+    const dataSourceId = await getDataSourceId(NOTION_DATABASE_ID);
+
+    for (const f of files) {
+      const r = await createOrUpdate({ dataSourceId, pathValue: f.path, shaValue: f.sha });
+      console.log(`${r.action}: ${r.path}`);
+    }
+
+    return;
   }
+/* Replace the “manual run” early-exit block with a full-sync branch END */
 
   // Get changed files from git diff
   const { execSync } = await import("node:child_process");
@@ -124,30 +172,18 @@ async function run() {
 
   // For each changed file, compute blob SHA by asking GitHub contents API (simple and ok for changed-only)
   for (const { status, file } of candidates) {
-    if (status === "D") {
-      // Optional: query by Path and archive the page instead of deleting
-      console.log(`deleted: ${file} (not archiving in this minimal script)`);
+  // Get blob SHA directly from the checked-out git repo (no GitHub API call)
+    let sha = "";
+    try {
+      sha = execSync(`git rev-parse ${AFTER}:${file}`, { encoding: "utf8" }).trim();
+    } catch {
+      console.log(`skip ${file}: cannot resolve blob sha at ${AFTER}`);
       continue;
     }
-
-    const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file}?ref=${AFTER}`, {
-      headers: {
-        Authorization: `Bearer ${GH_TOKEN}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        Accept: "application/vnd.github+json",
-      },
-    });
-
-    if (!ghRes.ok) {
-      console.log(`skip ${file}: cannot read contents metadata (${ghRes.status})`);
-      continue;
-    }
-
-    const meta = await ghRes.json();
-    const sha = meta.sha || "";
 
     const r = await createOrUpdate({ dataSourceId, pathValue: file, shaValue: sha });
     console.log(`${r.action}: ${r.path}`);
+
   }
 }
 
