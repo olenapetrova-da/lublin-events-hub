@@ -150,7 +150,7 @@ async function run() {
 /* Replace the “manual run” early-exit block with a full-sync branch END */
 
   // Get changed files from git diff
-  const { execSync } = await import("node:child_process");
+
   const diff = execSync(`git diff --name-status ${BEFORE} ${AFTER} -- docs/adr/`, { encoding: "utf8" })
     .trim()
     .split("\n")
