@@ -1,6 +1,8 @@
 # ADR-0008: Enrichment fields (what adapters may fill)
+
 *Status:* Accepted  
-*Date:* 2025-10-30
+*Date:* 2025-10-30  
+*Applies to:* LEHv1, LEHv2
 
 ## Context
 List pages often miss reliable values found on detail pages. We want better data with minimal cost and without moving taxonomy into code.
@@ -21,9 +23,11 @@ Adapters MUST NOT:
 
 ## Consequences
 - Consistent, bounded enrichment close to sources.
-- Taxonomy stays table-driven; no redeploy for label changes.
+- Taxonomy stays table-driven; no redeploy for label changes. :contentReference[oaicite:7]{index=7}
 
-## References
-- ADR-0002 (taxonomy in Sheets)
-- ADR-0006 (location & limits)
-- docs/specs/sources/zoom-lublin.md
+## LEHv2 note (2025-12)
+
+- The **field-level enrichment policy remains valid** for LEHv2; adapters still control payment/time/venue enrichment.
+- The “taxonomy stays table-driven in Sheets” part is superseded for LEHv2 by the future taxonomy/LLM ADR:
+  - LEHv1: taxonomy tables in Sheets.
+  - LEHv2: taxonomy/enrichment defined at DB/LLM level (separate ADR).

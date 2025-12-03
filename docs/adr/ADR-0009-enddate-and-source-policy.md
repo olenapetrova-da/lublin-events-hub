@@ -1,6 +1,8 @@
 # ADR-0009: _EndDate and Source policy
+
 *Status:* Accepted  
-*Date:* 2025-10-30
+*Date:* 2025-10-30  
+*Applies to:* LEHv1, LEHv2
 
 ## Context
 Multi-day events need an end date; clients also need a consistent source identifier.
@@ -16,10 +18,9 @@ Defaulting `_EndDate` in Apps Script reduces adapter complexity and keeps a sing
 
 ## Consequences
 - All rows are safe to normalize into `events` without special-casing.
-- Source filters remain simple and stable.
+- Source filters remain simple and stable. :contentReference[oaicite:8]{index=8}
 
-## References
-- ADR-0004 (hub JSON mode for refresh)
-- ADR-0005 (raw → normalized model)
-- ADR-0006 (location & limits)
-- docs/specs/sources/zoom-lublin.md
+## LEHv2 note (2025-12)
+
+- The policy that **every record must have `_EndDate`** and that **`Source` is the hostname** remains valid.
+- In LEHv2, the `_EndDate` defaulting rule moves from Apps Script into the **ingestion workflow (n8n / Supabase)**, but the behaviour is the same.
