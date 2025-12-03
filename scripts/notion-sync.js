@@ -282,12 +282,12 @@ function buildProperties(pathValue, shaValue, versionsMap) {
     };
   }
 
-  // Status (select, bare value w/o comments)
-  if (meta.status) {
-    properties[PROPS.adrStatus] = {
-      select: { name: meta.status },
-    };
-  }
+// Status (Notion "status" type, bare value w/o comments)
+if (meta.status) {
+  properties[PROPS.adrStatus] = {
+    status: { name: meta.status },
+  };
+}
 
   // Superseded by
   if (meta.supersededBy) {
