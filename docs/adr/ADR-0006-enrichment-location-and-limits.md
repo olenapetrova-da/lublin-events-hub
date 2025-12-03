@@ -1,6 +1,8 @@
 # ADR-0006: Enrichment location & limits (adapters only)
+
 *Status:* Accepted  
-*Date:* 2025-10-30
+*Date:* 2025-10-30  
+*Applies to:* LEHv1, LEHv2
 
 ## Context
 Each source (e.g., lublin.eu, zoom.lublin.pl) has a list page (limited fields) and a detail page (richer fields). We want to fill missing values without adding Make ops and keep taxonomy outside of code.
@@ -18,11 +20,12 @@ Each source (e.g., lublin.eu, zoom.lublin.pl) has a list page (limited fields) a
 ## Consequences
 - Consistent behavior across sources.
 - Compute stays close to each source; zero Make ops added.
-- Taxonomy remains table-driven in Sheets; no redeploys for label changes.
+- Taxonomy remains table-driven in Sheets; no redeploys for label changes. :contentReference[oaicite:6]{index=6}
 
-## References
-- ADR-0008 (enrichment fields)
-- ADR-0009 (_EndDate & Source)
-- ADR-0002 (taxonomy in Sheets)
-- ADR-0005 (raw → normalized model)
-- docs/specs/sources/zoom-lublin.md
+## LEHv2 note (2025-12)
+
+- The **location of enrichment (adapters) and `enrich`/`enrich_max` contract remain valid** for LEHv2.
+- The downstream consumer changes:
+  - LEHv1: Apps Script + Sheets.
+  - LEHv2: n8n ingestion workflow + Supabase.
+- Taxonomy is no longer in Sheets for LEHv2 (ADR-0002 is superseded); enrichment still must not perform taxonomy mapping.

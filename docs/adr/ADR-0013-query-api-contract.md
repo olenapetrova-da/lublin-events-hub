@@ -1,8 +1,11 @@
 # ADR-0013: Query API contract (doGet)
 
-*Status:* Accepted  
+*Status:* Superseded 
 *Date:* 2025-11-12  
-*Owner:* Apps Script Web App (`doGet(e)`)
+*Owner:* Apps Script Web App (`doGet(e)`)  
+*Applies to:* LEHv1  
+*Superseded by:* ADR-0015 
+
 
 ---
 
@@ -126,4 +129,8 @@ This order matches the current implementation and aligns with ADR-0011 intent wh
 - **Ordering principle**: ADR-0011 (Hub ordering policy)
 - **Dedupe fallback**: ADR-0012 (without venue)
 -  **Implementation**: apps_script/Lublin_events_DB_AppScript/api_doGet.js (v0.3.0-rc.3 @ 141940c):
-    - ::contentReference[oaicite:0]{index=0}
+
+## LEHv2 note (2025-12)
+
+- For LEHv2, Apps Script doGet is no longer the active runtime API.
+- Querying and pagination are implemented directly against Supabase via n8n workflows (see ADR-0015 and overview-minimal-n8n-ops.md), but they preserve the same user-visible contract (period, category, payment, basic pagination).

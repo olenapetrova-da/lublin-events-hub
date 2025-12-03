@@ -1,6 +1,11 @@
 # ADR-0014: Query API contract (params & response)
-*Status:* Accepted  
-*Date:* 2025-10-29
+*Status:* Superseded
+*Date:* 2025-11-12  
+*Owner:* Apps Script Web App (`doGet(e)`)  
+*Applies to:* LEHv1  
+*Superseded by:* ADR-0015
+
+(DB-based queries via n8n)
 
 ## Context
 Telegram/Make should call a single endpoint and receive predictable JSON with pagination.
@@ -41,3 +46,8 @@ Telegram/Make should call a single endpoint and receive predictable JSON with pa
 
 ## Error handling
 - If refresh failed, optionally include `"stale": true` in the payload and serve last good data.
+
+## Status notes
+
+- ADR-0013 refines this contract with explicit times joining and more detailed sorting and error behavior.
+- For LEHv2, the Apps Script-based Query API is no longer used; queries are handled directly against Supabase via n8n.
