@@ -1,6 +1,11 @@
 # Architecture — Minimal Make Ops (big picture)
 *Updated:* 2025-11-21
 
+> Status (2025-12): **Legacy — LEHv1 only.**  
+> This file describes the minimal Make.com + Google Sheets + Apps Script runtime.  
+> For the active LEHv2 runtime (n8n Cloud + Supabase + Telegram), see:
+> `docs/architecture/overview-minimal-n8n-ops.md`.
+
 This file is the **single place** for the big-picture diagram and flow. ADRs hold individual decisions; Strategy holds the step-by-step plan.
 
 ---
