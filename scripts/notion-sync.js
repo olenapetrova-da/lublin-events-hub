@@ -10,7 +10,7 @@ const fs = require("node:fs");
 
 const AFTER = process.env.GITHUB_SHA;
 const FULL_SYNC = process.env.FULL_SYNC === "1";
-const DOCS_ROOT = "docs/adr/";
+const DOCS_ROOT = (process.env.DOCS_ROOT || "docs/adr/").replace(/\\/g, "/").replace(/^\.?\//, "");
 
 const EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
 let BEFORE = "";
