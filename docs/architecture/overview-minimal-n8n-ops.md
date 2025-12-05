@@ -124,6 +124,10 @@ Partial data (due to adapter budget limits) is acceptable; daily runs achieve ev
 
 ## 5. Scope vs future extensions
 
+**Stage 1 **
+
+- DB schema v1: see docs/lehv2/LEHv2_DB_Schema_v1.md.
+
 **Out of scope for this minimal runtime:**
 
 - Free-text natural-language queries (bot remains button-only).

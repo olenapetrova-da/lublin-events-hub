@@ -55,6 +55,8 @@ For LEHv2 we will:
      - managed Postgres (backups, scaling),
      - SQL access from n8n.
 
+DB schema v1: docs/lehv2/LEHv2_DB/LEHv2_DB_schema_S1.md
+
 3. **Keep Cloudflare Workers as source adapters and Hub**
 
    - Per-source adapters (official, zoom, etc.) and Hub are reused from LEHv1.
@@ -95,5 +97,4 @@ LEHv1 stack (Make + Sheets + Apps Script) remains in the repository as **legacy*
   - `docs/architecture/overview-minimal-make-ops.md` → legacy.
   - `docs/architecture/overview-minimal-n8n-ops.md` → active minimal runtime.
 - Define:
-  - LEHv2 database schema (events/showtimes/user_state) in `docs/lehv2/LEHv2_DB_Schema_v1.md`.
   - LEHv2 taxonomy/enrichment approach in a dedicated ADR (superseding ADR-0002 for v2).
