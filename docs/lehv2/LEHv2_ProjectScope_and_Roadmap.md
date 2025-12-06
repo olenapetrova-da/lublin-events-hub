@@ -241,6 +241,10 @@ The roadmap assumes **Option A** for simplicity. If you choose Option B, the fun
      - `events` (id, source, source_event_id, title, url, raw_text, created_at, updated_at).
      - `showtimes` (id, event_id, start_date, start_time, venue, payment, created_at).
    - Optional: `sources` table for source metadata.
+   
+   Done: 
+   - docs/lehv2/LEHv2_DB_schema_S1.md
+   - docs/lehv2/LEHv2_Hub_to_DB_Mapping_S1.md
 
 2. **WF-INGEST implementation**
    - Cron trigger once per day (configurable time).

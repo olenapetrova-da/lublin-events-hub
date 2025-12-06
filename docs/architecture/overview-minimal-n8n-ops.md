@@ -124,9 +124,12 @@ Partial data (due to adapter budget limits) is acceptable; daily runs achieve ev
 
 ## 5. Scope vs future extensions
 
-**Stage 1 **
+### Stage 1 
+
+**References**
 
 - DB schema v1: see docs/lehv2/LEHv2_DB_Schema_v1.md.
+- Hub → DB mapping: docs/lehv2/LEHv2_Hub_to_DB_Mapping_S1.md
 
 **Out of scope for this minimal runtime:**
 

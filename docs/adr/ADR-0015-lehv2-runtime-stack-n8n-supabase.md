@@ -55,7 +55,8 @@ For LEHv2 we will:
      - managed Postgres (backups, scaling),
      - SQL access from n8n.
 
-DB schema v1: docs/lehv2/LEHv2_DB/LEHv2_DB_schema_S1.md
+Stage 1 DB schema and Hub→DB mapping are defined in:
+LEHv2_DB_schema_S1.md and LEHv2_Hub_to_DB_Mapping_S1.md.
 
 3. **Keep Cloudflare Workers as source adapters and Hub**
 
