@@ -142,7 +142,7 @@ Derived field:
 
 | Derived   | DB table | Column    | How defined                                                                 |
 |-----------|----------|-----------|-----------------------------------------------------------------------------|
-| `event_id`| `events` | `event_id`| Computed in WF-INGEST, using the same recipe as LEHv1 (Apps Script).       |
+| `event_id`| `events` | `event_id`| event_id … Computed in WF-INGEST (Stage 1 variant). In Stage 1 it does **not** include date/time, so the same (source, title, venue, url) share one event_id across all dates.       |
 
 Insert/upsert logic (conceptual):
 
