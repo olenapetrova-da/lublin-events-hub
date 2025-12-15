@@ -2,314 +2,16 @@
   "name": "WF-INGEST – Hub → DB",
   "nodes": [
     {
-      "parameters": {},
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        0
-      ],
-      "id": "2d31457c-167b-404c-81d0-dc2deca1758c",
-      "name": "When clicking ‘Execute workflow’"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "f6ef2c28-f1bb-430f-a8c8-1514f79d9b7d",
-              "name": "date",
-              "value": "={{ $now.setZone('Europe/Warsaw').toFormat('yyyy-LL-dd') }}",
-              "type": "string"
-            },
-            {
-              "id": "a3c674c8-9dd3-46ce-a20a-1238eb67e49d",
-              "name": "period",
-              "value": "week",
-              "type": "string"
-            },
-            {
-              "id": "3e919d6f-60e9-4a79-ad3e-b6239b86bb6d",
-              "name": "sheet",
-              "value": "0",
-              "type": "string"
-            },
-            {
-              "id": "9adbccce-6985-4a81-b3fb-032c33f14312",
-              "name": "group_times",
-              "value": "1",
-              "type": "string"
-            },
-            {
-              "id": "9701abf9-5344-4b71-a99b-4dd90e79a250",
-              "name": "pages",
-              "value": "3",
-              "type": "string"
-            },
-            {
-              "id": "062ff3f8-8389-4d97-8fdb-b9832f803ce6",
-              "name": "limit",
-              "value": "1000",
-              "type": "string"
-            },
-            {
-              "id": "d332f9d3-7c7f-481c-b5fe-6d4833208ec1",
-              "name": "include_in_progress",
-              "value": "1",
-              "type": "string"
-            },
-            {
-              "id": "2324431a-6d50-495f-85f8-b81122077c98",
-              "name": "days",
-              "value": "7",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        208,
-        0
-      ],
-      "id": "168ecec2-cb9c-4d9d-886a-c2a36e7992e5",
-      "name": "Config – Window & Hub params"
-    },
-    {
-      "parameters": {
-        "url": "https://lublin-events-hub.elenipster.workers.dev/",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "date",
-              "value": "={{ $('Config – Window & Hub params').item.json.date }}"
-            },
-            {
-              "name": "period",
-              "value": "={{ $('Config – Window & Hub params').item.json.period }}"
-            },
-            {
-              "name": "days",
-              "value": "={{ $('Config – Window & Hub params').item.json.days }}"
-            },
-            {
-              "name": "sheet",
-              "value": "={{ $('Config – Window & Hub params').item.json.sheet }}"
-            },
-            {
-              "name": "group_times",
-              "value": "={{ $('Config – Window & Hub params').item.json.group_times }}"
-            },
-            {
-              "name": "limit",
-              "value": "={{ $('Config – Window & Hub params').item.json.limit }}"
-            },
-            {
-              "name": "include_in_progress",
-              "value": "={{ $('Config – Window & Hub params').item.json.include_in_progress }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        624,
-        0
-      ],
-      "id": "b1148ea5-d59a-49cb-acaf-5579369e77cb",
-      "name": "HTTP – Fetch Hub events"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "71d88446-dba2-4584-a539-866e8058313d",
-              "name": "title",
-              "value": "={{ $json.Title }}",
-              "type": "string"
-            },
-            {
-              "id": "4281f2a2-23f2-4511-b6c3-8950fd415ad5",
-              "name": "source_domain",
-              "value": "={{ $json.Source }}",
-              "type": "string"
-            },
-            {
-              "id": "1cfef894-2875-4f44-82a6-9d3ac1fdf12d",
-              "name": "url",
-              "value": "={{ $json.Link }}",
-              "type": "string"
-            },
-            {
-              "id": "0a0ad70c-4573-492e-87c7-4867692f20f9",
-              "name": "category_raw",
-              "value": "={{ $json.Category }}",
-              "type": "string"
-            },
-            {
-              "id": "1cdba57c-7a5e-4a89-9a74-d8af4b38f188",
-              "name": "date_str",
-              "value": "={{ $json.Date }}",
-              "type": "string"
-            },
-            {
-              "id": "fd42ccda-9005-4264-8fb4-16ec770990f9",
-              "name": "time_str",
-              "value": "={{ $json.Time }}",
-              "type": "string"
-            },
-            {
-              "id": "a5a8cbf7-4586-4bb0-9aa7-b64c08628317",
-              "name": "end_date_str",
-              "value": "={{ $json._EndDate }}",
-              "type": "string"
-            },
-            {
-              "id": "047f9ee9-68ab-4ab9-a210-3e108a845a7e",
-              "name": "venue_raw",
-              "value": "={{ $json.Venue }}",
-              "type": "string"
-            },
-            {
-              "id": "e98f39e3-eb2d-495b-84ef-3bda170223de",
-              "name": "Payment for Entry",
-              "value": "={{ $json['Payment for Entry'] }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1040,
-        0
-      ],
-      "id": "7b6ce432-f500-4403-a68a-d3100d378110",
-      "name": "Map event fields"
-    },
-    {
-      "parameters": {
-        "fieldToSplitOut": "events",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        832,
-        0
-      ],
-      "id": "c984e5f7-1c50-415f-9174-ec6adf8ffe40",
-      "name": "Split – events array"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "cea317f9-9aa6-4fcc-9083-e7f5167a0436",
-              "name": "source",
-              "value": "={{ $json.source_domain === 'zoom.lublin.pl'\n     ? 'zoom'\n     : $json.source_domain === 'lublin.eu'\n       ? 'official'\n       : 'unknown' }}",
-              "type": "string"
-            },
-            {
-              "id": "0033497e-4380-4d41-bf4a-744ea60d9d2d",
-              "name": "title",
-              "value": "={{ $json.title }}",
-              "type": "string"
-            },
-            {
-              "id": "3f3c904b-fab4-4a4b-9e66-e7eb970378b9",
-              "name": "source_domain",
-              "value": "={{ $json.source_domain }}",
-              "type": "string"
-            },
-            {
-              "id": "eb02f65b-9f22-4e6c-858d-e0a485825a2d",
-              "name": "url",
-              "value": "={{ $json.url }}",
-              "type": "string"
-            },
-            {
-              "id": "6f285f57-a7d3-44e7-bb0c-49c6e4b00d72",
-              "name": "category_raw",
-              "value": "={{ $json.category_raw }}",
-              "type": "string"
-            },
-            {
-              "id": "49391419-654c-4ba1-ae4b-fb58c50578e6",
-              "name": "date_str",
-              "value": "={{ $json.date_str }}",
-              "type": "string"
-            },
-            {
-              "id": "e556e8a3-2770-452c-816b-d4d1c2b268d6",
-              "name": "time_str",
-              "value": "={{ $json.time_str }}",
-              "type": "string"
-            },
-            {
-              "id": "26285d85-58bc-4c99-b7ba-e463ce87ec19",
-              "name": "end_date_str",
-              "value": "={{ $json.end_date_str }}",
-              "type": "string"
-            },
-            {
-              "id": "c78fc4e0-948d-4a2e-a525-7d4f521041a2",
-              "name": "venue_raw",
-              "value": "={{ $json.venue_raw }}",
-              "type": "string"
-            },
-            {
-              "id": "fe41dadf-9bbd-4a6e-b740-84d88e8a6e83",
-              "name": "Payment for Entry",
-              "value": "={{ $json['Payment for Entry'] }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1264,
-        0
-      ],
-      "id": "b7a9e1a9-af72-4c0c-bd72-b90f31a13dce",
-      "name": "Source mapping"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Mode: Run Once for All Items\n// Compute a stable event_id that does NOT depend on date/time.\n// One ID per (source, title, venue, url).\n\nfunction normalizeForId(s) {\n  if (!s) return '';\n  let out = String(s).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n  out = out\n    .replace(/ł/g, 'l')\n    .replace(/Ł/g, 'L')\n    .replace(/ß/g, 'ss');\n  out = out.replace(/\\s+/g, ' ').trim().toLowerCase();\n  return out;\n}\n\nreturn items.map(item => {\n  const j = item.json;\n\n  const source    = j.source || 'unknown';           // 'zoom', 'official', ...\n  const titleNorm = normalizeForId(j.title || '');\n  const venueNorm = normalizeForId(j.venue_raw || '');\n  const url       = j.url || '';\n\n  // No date/time here on purpose\n  j.event_id = `${source}|${titleNorm}|${venueNorm}|${url}`;\n\n  return item;\n});\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1456,
-        0
-      ],
-      "id": "3e8d8326-a7e8-48c4-8130-7d6c4c4bce38",
-      "name": "Code – compute event_id"
-    },
-    {
       "parameters": {
         "jsCode": "// Build showtime rows from events that already have event_id\n// Mode: Run Once for All Items\n\nconst out = [];\n\nfunction safeStr(v) {\n  return v == null ? '' : String(v).trim();\n}\n\n// Payment mapping: Hub \"Payment for Entry\" → free|paid|unknown\nfunction mapPayment(raw) {\n  const s = safeStr(raw).toLowerCase();\n  if (!s) return 'unknown';\n\n  if (\n    s.includes('bezpłat') || s.includes('bezplat') ||\n    s.includes('wstęp wolny') || s.includes('wstep wolny')\n  ) {\n    return 'free';\n  }\n\n  if (\n    s.includes('płat') || s.includes('plat') ||\n    s.includes('bilet') || s.includes('wejściówk') || s.includes('wejsciowk')\n  ) {\n    return 'paid';\n  }\n\n  return 'unknown';\n}\n\nfor (const item of items) {\n  const row = item.json;\n\n  // event_id must already be set by \"Code – compute event_id\"\n  const eventId = safeStr(row.event_id);\n  if (!eventId) {\n    // If for some reason there is no event_id, skip this row to avoid FK errors\n    continue;\n  }\n\n  const dateStr     = safeStr(row.date_str || row.Date);\n  const timeStrRaw  = safeStr(row.time_str || row.Time);\n  const endDateStr0 = safeStr(row.end_date_str || row._EndDate || row._end_date);\n  const endDateStr  = endDateStr0 || dateStr;\n\n  const venueRaw = safeStr(row.venue_raw || row.Venue || row.venue);\n  const venue    = venueRaw.replace(/\\s+/g, ' ').trim();\n\n  const payRaw  = row['Payment for Entry'] ?? row.payment_raw ?? row.payment;\n  const payment = mapPayment(payRaw);\n\n  // Split times by comma/semicolon, keep non-empty tokens\n  let times = [];\n  if (timeStrRaw) {\n    times = timeStrRaw\n      .split(/[;,]/)\n      .map(t => safeStr(t))\n      .filter(Boolean);\n  }\n\n  // Case A: single-day, timed event (Date == _EndDate, Time not empty)\n  if (dateStr && times.length > 0 && endDateStr === dateStr) {\n    for (const t of times) {\n      out.push({\n        json: {\n          event_id:  eventId,\n          date:      dateStr,\n          time:      t,\n          _end_date: dateStr,\n          venue,\n          payment,\n        },\n      });\n    }\n    continue;\n  }\n\n  // Case C: multi-day, no-time (Time empty, _EndDate > Date)\n  if (dateStr && !timeStrRaw && endDateStr && endDateStr !== dateStr) {\n    out.push({\n      json: {\n        event_id:  eventId,\n        date:      dateStr,\n        time:      null,\n        _end_date: endDateStr,\n        venue,\n        payment,\n      },\n    });\n    continue;\n  }\n\n  // Case B: single-day, no-time (Time empty, _EndDate == Date or empty)\n  if (dateStr && !timeStrRaw) {\n    out.push({\n      json: {\n        event_id:  eventId,\n        date:      dateStr,\n        time:      null,\n        _end_date: dateStr,\n        venue,\n        payment,\n      },\n    });\n    continue;\n  }\n\n  // Fallback: weird combinations – best effort, one row using first time token (if any)\n  if (dateStr) {\n    const t = times[0] || null;\n    out.push({\n      json: {\n        event_id:  eventId,\n        date:      dateStr,\n        time:      t,\n        _end_date: endDateStr || dateStr,\n        venue,\n        payment,\n      },\n    });\n  }\n}\n\nreturn out;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1760,
-        256
+        2144,
+        640
       ],
-      "id": "9273152f-6760-4256-9fd4-0524924b1055",
+      "id": "bee9408d-4a5c-43b4-a5a3-ab2d4cfb3578",
       "name": "Code – build showtime rows"
     },
     {
@@ -321,10 +23,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        416,
-        0
+        832,
+        256
       ],
-      "id": "2e2acb45-d1eb-4d0f-894d-782c57c8aa4f",
+      "id": "0cff0c99-224b-4a0b-b8c7-8774d07ee2b1",
       "name": "DB – Prune showtimes",
       "credentials": {
         "postgres": {
@@ -380,10 +82,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1712,
-        0
+        2096,
+        384
       ],
-      "id": "84bd31a0-460c-4fcd-baba-a606c370c912",
+      "id": "6102438b-0153-4bbe-a3fa-e27f1ce0baf6",
       "name": "Events payload"
     },
     {
@@ -475,10 +177,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1904,
-        0
+        2288,
+        384
       ],
-      "id": "4680668d-7130-4074-a8e6-3b26c226a058",
+      "id": "b45e6a15-510d-43e4-bad1-d146412a9e26",
       "name": "DB – Upsert events",
       "notesInFlow": false,
       "credentials": {
@@ -600,10 +302,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1984,
-        256
+        2624,
+        624
       ],
-      "id": "09885ba0-d971-4778-a2a8-1f5d689a2111",
+      "id": "37b883c3-4f37-4544-b906-907a0a401447",
       "name": "DB - insert showtimes",
       "credentials": {
         "postgres": {
@@ -614,111 +316,376 @@
     },
     {
       "parameters": {
-        "jsCode": "// Summary – metrics for WF-INGEST\n// Mode: Run Once for All Items\n\nfunction safeNum(v, fallback = 0) {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : fallback;\n}\n\n// 1) Window config (date / period / days)\nlet config = { date: null, period: null, days: null };\ntry {\n  const cfgItems = $items('Config – Window & Hub params');\n  if (cfgItems.length && cfgItems[0].json) {\n    const j = cfgItems[0].json;\n    config = {\n      date:   j.date   ?? null,\n      period: j.period ?? null,\n      days:   j.days   ?? null,\n    };\n  }\n} catch (e) {\n  // leave defaults\n}\n\n// 2) Hub telemetry (HTTP – Fetch Hub events)\nlet hub = {\n  received: null,\n  count: null,\n  events_array_length: null,\n  per_source_raw: null,\n};\ntry {\n  const hubItems = $items('HTTP – Fetch Hub events');\n  if (hubItems.length && hubItems[0].json) {\n    const j = hubItems[0].json;\n    hub.received            = safeNum(j.received, null);\n    hub.count               = safeNum(j.count, null);\n    hub.events_array_length = Array.isArray(j.events) ? j.events.length : null;\n    hub.per_source_raw      = Array.isArray(j.per_source) ? j.per_source : null;\n  }\n} catch (e) {\n  // leave defaults\n}\n\n// 3) Events after mapping / event_id\nconst eventItems = $items('Code – compute event_id') || [];\nconst eventsTotal = eventItems.length;\n\nconst eventIdSet = new Set();\nconst eventsPerSource = {};\nfor (const it of eventItems) {\n  const j = it.json || {};\n  const id = j.event_id || '';\n  if (id) eventIdSet.add(id);\n\n  const src = j.source || 'unknown';\n  eventsPerSource[src] = (eventsPerSource[src] || 0) + 1;\n}\nconst eventIdsDistinct = eventIdSet.size;\n\n// 4) Showtime rows generated\nconst showtimeItems = $items('Code – build showtime rows') || [];\nconst showtimesGenerated = showtimeItems.length;\n\n// Per-source showtime counts (infer source from event_id prefix)\nconst showtimesPerSource = {};\nfor (const it of showtimeItems) {\n  const j = it.json || {};\n  const eventId = j.event_id || '';\n  const src = eventId.split('|')[0] || 'unknown';\n  showtimesPerSource[src] = (showtimesPerSource[src] || 0) + 1;\n}\n\n// 5) Showtimes deleted by prune step\nconst prunedItems = $items('DB – Prune showtimes') || [];\nconst showtimesDeleted = prunedItems.length;\n\n// 6) Build final summary object\nconst summary = {\n  window: {\n    date:   config.date,\n    period: config.period,\n    days:   config.days,\n  },\n  hub: {\n    received:            hub.received,\n    count:               hub.count,\n    events_array_length: hub.events_array_length,\n    per_source_raw:      hub.per_source_raw,\n  },\n  events: {\n    total_items_after_mapping: eventsTotal,\n    distinct_event_id:         eventIdsDistinct,\n    per_source:                eventsPerSource,\n  },\n  showtimes: {\n    generated:       showtimesGenerated,\n    deleted_by_prune: showtimesDeleted,\n    per_source:      showtimesPerSource,\n  },\n};\n\n// Return a single summary item as workflow output\nreturn [\n  {\n    json: summary,\n  },\n];\n"
+        "jsCode": "// Summary – metrics for WF-INGEST\n// Mode: Run Once for All Items\n\nfunction safeNum(v, fallback = 0) {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : fallback;\n}\n\n// 1) Window config (date / period / days)\nlet config = { date: null, period: null, days: null };\ntry {\n  const cfgItems = $items('Config – Window & Hub params1');\n  if (cfgItems.length && cfgItems[0].json) {\n    const j = cfgItems[0].json;\n    config = {\n      date:   j.date   ?? null,\n      period: j.period ?? null,\n      days:   j.days   ?? null,\n    };\n  }\n} catch (e) {\n  // leave defaults\n}\n\n// 2) Hub telemetry (HTTP – Fetch Hub events)\nlet hub = {\n  received: null,\n  count: null,\n  events_array_length: null,\n  per_source_raw: null,\n};\ntry {\n  const hubItems = $items('HTTP – Fetch Hub events1');\n  if (hubItems.length && hubItems[0].json) {\n    const j = hubItems[0].json;\n    hub.received            = safeNum(j.received, null);\n    hub.count               = safeNum(j.count, null);\n    hub.events_array_length = Array.isArray(j.events) ? j.events.length : null;\n    hub.per_source_raw      = Array.isArray(j.per_source) ? j.per_source : null;\n  }\n} catch (e) {\n  // leave defaults\n}\n\n// 3) Events after mapping / event_id\nconst eventItems = $items('Code – compute event_id1') || [];\nconst eventsTotal = eventItems.length;\n\nconst eventIdSet = new Set();\nconst eventsPerSource = {};\nfor (const it of eventItems) {\n  const j = it.json || {};\n  const id = j.event_id || '';\n  if (id) eventIdSet.add(id);\n\n  const src = j.source || 'unknown';\n  eventsPerSource[src] = (eventsPerSource[src] || 0) + 1;\n}\nconst eventIdsDistinct = eventIdSet.size;\n\n// 4) Showtime rows generated\nconst showtimeItems = $items('Code – build showtime rows') || [];\nconst showtimesGenerated = showtimeItems.length;\n\n// Per-source showtime counts (infer source from event_id prefix)\nconst showtimesPerSource = {};\nfor (const it of showtimeItems) {\n  const j = it.json || {};\n  const eventId = j.event_id || '';\n  const src = eventId.split('|')[0] || 'unknown';\n  showtimesPerSource[src] = (showtimesPerSource[src] || 0) + 1;\n}\n\n// 5) Showtimes deleted by prune step\nconst prunedItems = $items('DB – Prune showtimes') || [];\nconst showtimesDeleted = prunedItems.length;\n\n// 6) Build final summary object\nconst summary = {\n  window: {\n    date:   config.date,\n    period: config.period,\n    days:   config.days,\n  },\n  hub: {\n    received:            hub.received,\n    count:               hub.count,\n    events_array_length: hub.events_array_length,\n    per_source_raw:      hub.per_source_raw,\n  },\n  events: {\n    total_items_after_mapping: eventsTotal,\n    distinct_event_id:         eventIdsDistinct,\n    per_source:                eventsPerSource,\n  },\n  showtimes: {\n    generated:       showtimesGenerated,\n    deleted_by_prune: showtimesDeleted,\n    per_source:      showtimesPerSource,\n  },\n};\n\n// Return a single summary item as workflow output\nreturn [\n  {\n    json: summary,\n  },\n];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2208,
-        256
+        2848,
+        624
       ],
-      "id": "a7ac3dc9-b69e-4423-9ddf-551e7afd39d0",
+      "id": "ebd4f5b7-35c4-4ea2-b93a-543358d0101d",
       "name": "Summary – metrics"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f6ef2c28-f1bb-430f-a8c8-1514f79d9b7d",
+              "name": "date",
+              "value": "=2025-12-15",
+              "type": "string"
+            },
+            {
+              "id": "a3c674c8-9dd3-46ce-a20a-1238eb67e49d",
+              "name": "period",
+              "value": "week",
+              "type": "string"
+            },
+            {
+              "id": "3e919d6f-60e9-4a79-ad3e-b6239b86bb6d",
+              "name": "sheet",
+              "value": "0",
+              "type": "string"
+            },
+            {
+              "id": "9adbccce-6985-4a81-b3fb-032c33f14312",
+              "name": "group_times",
+              "value": "1",
+              "type": "string"
+            },
+            {
+              "id": "9701abf9-5344-4b71-a99b-4dd90e79a250",
+              "name": "pages",
+              "value": "3",
+              "type": "string"
+            },
+            {
+              "id": "062ff3f8-8389-4d97-8fdb-b9832f803ce6",
+              "name": "limit",
+              "value": "1000",
+              "type": "string"
+            },
+            {
+              "id": "d332f9d3-7c7f-481c-b5fe-6d4833208ec1",
+              "name": "include_in_progress",
+              "value": "1",
+              "type": "string"
+            },
+            {
+              "id": "2324431a-6d50-495f-85f8-b81122077c98",
+              "name": "days",
+              "value": "7",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        592,
+        384
+      ],
+      "id": "06888b85-d94d-4cff-8399-38252433c6b3",
+      "name": "Config – Window & Hub params1"
+    },
+    {
+      "parameters": {
+        "url": "https://lublin-events-hub.elenipster.workers.dev/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $('Config – Window & Hub params1').item.json.date }}"
+            },
+            {
+              "name": "period",
+              "value": "={{ $('Config – Window & Hub params1').item.json.period }}"
+            },
+            {
+              "name": "days",
+              "value": "={{ $('Config – Window & Hub params1').item.json.days }}"
+            },
+            {
+              "name": "sheet",
+              "value": "={{ $('Config – Window & Hub params1').item.json.sheet }}"
+            },
+            {
+              "name": "group_times",
+              "value": "={{ $('Config – Window & Hub params1').item.json.group_times }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $('Config – Window & Hub params1').item.json.limit }}"
+            },
+            {
+              "name": "include_in_progress",
+              "value": "={{ $('Config – Window & Hub params1').item.json.include_in_progress }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1008,
+        384
+      ],
+      "id": "9f862509-495f-4653-9ca8-17b3a2bd9458",
+      "name": "HTTP – Fetch Hub events1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "71d88446-dba2-4584-a539-866e8058313d",
+              "name": "title",
+              "value": "={{ $json.Title }}",
+              "type": "string"
+            },
+            {
+              "id": "4281f2a2-23f2-4511-b6c3-8950fd415ad5",
+              "name": "source_domain",
+              "value": "={{ $json.Source }}",
+              "type": "string"
+            },
+            {
+              "id": "1cfef894-2875-4f44-82a6-9d3ac1fdf12d",
+              "name": "url",
+              "value": "={{ $json.Link }}",
+              "type": "string"
+            },
+            {
+              "id": "0a0ad70c-4573-492e-87c7-4867692f20f9",
+              "name": "category_raw",
+              "value": "={{ $json.Category }}",
+              "type": "string"
+            },
+            {
+              "id": "1cdba57c-7a5e-4a89-9a74-d8af4b38f188",
+              "name": "date_str",
+              "value": "={{ $json.Date }}",
+              "type": "string"
+            },
+            {
+              "id": "fd42ccda-9005-4264-8fb4-16ec770990f9",
+              "name": "time_str",
+              "value": "={{ $json.Time }}",
+              "type": "string"
+            },
+            {
+              "id": "a5a8cbf7-4586-4bb0-9aa7-b64c08628317",
+              "name": "end_date_str",
+              "value": "={{ $json._EndDate }}",
+              "type": "string"
+            },
+            {
+              "id": "047f9ee9-68ab-4ab9-a210-3e108a845a7e",
+              "name": "venue_raw",
+              "value": "={{ $json.Venue }}",
+              "type": "string"
+            },
+            {
+              "id": "e98f39e3-eb2d-495b-84ef-3bda170223de",
+              "name": "Payment for Entry",
+              "value": "={{ $json['Payment for Entry'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1424,
+        384
+      ],
+      "id": "42133be7-219b-4891-9d79-421024850854",
+      "name": "Map event fields1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "events",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        384
+      ],
+      "id": "dff19246-bdf1-4dfc-a50f-f8299986714a",
+      "name": "Split – events array1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cea317f9-9aa6-4fcc-9083-e7f5167a0436",
+              "name": "source",
+              "value": "={{ $json.source_domain === 'zoom.lublin.pl'\n     ? 'zoom'\n     : $json.source_domain === 'lublin.eu'\n       ? 'official'\n       : 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "0033497e-4380-4d41-bf4a-744ea60d9d2d",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "3f3c904b-fab4-4a4b-9e66-e7eb970378b9",
+              "name": "source_domain",
+              "value": "={{ $json.source_domain }}",
+              "type": "string"
+            },
+            {
+              "id": "eb02f65b-9f22-4e6c-858d-e0a485825a2d",
+              "name": "url",
+              "value": "={{ $json.url }}",
+              "type": "string"
+            },
+            {
+              "id": "6f285f57-a7d3-44e7-bb0c-49c6e4b00d72",
+              "name": "category_raw",
+              "value": "={{ $json.category_raw }}",
+              "type": "string"
+            },
+            {
+              "id": "49391419-654c-4ba1-ae4b-fb58c50578e6",
+              "name": "date_str",
+              "value": "={{ $json.date_str }}",
+              "type": "string"
+            },
+            {
+              "id": "e556e8a3-2770-452c-816b-d4d1c2b268d6",
+              "name": "time_str",
+              "value": "={{ $json.time_str }}",
+              "type": "string"
+            },
+            {
+              "id": "26285d85-58bc-4c99-b7ba-e463ce87ec19",
+              "name": "end_date_str",
+              "value": "={{ $json.end_date_str }}",
+              "type": "string"
+            },
+            {
+              "id": "c78fc4e0-948d-4a2e-a525-7d4f521041a2",
+              "name": "venue_raw",
+              "value": "={{ $json.venue_raw }}",
+              "type": "string"
+            },
+            {
+              "id": "fe41dadf-9bbd-4a6e-b740-84d88e8a6e83",
+              "name": "Payment for Entry",
+              "value": "={{ $json['Payment for Entry'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1648,
+        384
+      ],
+      "id": "0e06e0c6-8f72-4544-9a0f-c944071d66c0",
+      "name": "Source mapping1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mode: Run Once for All Items\n// Compute a stable event_id that does NOT depend on date/time.\n// One ID per (source, title, venue, url).\n\nfunction normalizeForId(s) {\n  if (!s) return '';\n  let out = String(s).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n  out = out\n    .replace(/ł/g, 'l')\n    .replace(/Ł/g, 'L')\n    .replace(/ß/g, 'ss');\n  out = out.replace(/\\s+/g, ' ').trim().toLowerCase();\n  return out;\n}\n\nreturn items.map(item => {\n  const j = item.json;\n\n  const source    = j.source || 'unknown';           // 'zoom', 'official', ...\n  const titleNorm = normalizeForId(j.title || '');\n  const venueNorm = normalizeForId(j.venue_raw || '');\n  const url       = j.url || '';\n\n  // No date/time here on purpose\n  j.event_id = `${source}|${titleNorm}|${venueNorm}|${url}`;\n\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        384
+      ],
+      "id": "ab60d309-55c4-46ae-9830-9f5cd0646b95",
+      "name": "Code – compute event_id1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9d3392e0-17ca-4085-9e4e-89a4f8364194",
+              "leftValue": "={{ $json.time }}",
+              "rightValue": "NULL",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2336,
+        640
+      ],
+      "id": "fa689866-feda-4cdf-aac3-8ca2cbc4bd48",
+      "name": "IF – has time"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.showtimes (\n  event_id,\n  date,\n  time,\n  _end_date,\n  venue,\n  payment\n)\nSELECT\n  '{{$json[\"event_id\"]}}',\n  '{{$json[\"date\"]}}'::date,\n  NULL::time,\n  '{{$json[\"_end_date\"]}}'::date,\n  '{{$json[\"venue\"]}}',\n  '{{$json[\"payment\"]}}'\nWHERE NOT EXISTS (\n  SELECT 1\n  FROM public.showtimes s\n  WHERE s.event_id = '{{$json[\"event_id\"]}}'\n    AND s.date     = '{{$json[\"date\"]}}'::date\n    AND s.time IS NULL\n    AND s.venue    = '{{$json[\"venue\"]}}'\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2512,
+        848
+      ],
+      "id": "bd784320-7743-46b2-921b-43c007414b33",
+      "name": "DB – insert showtimes (no-time)",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        352,
+        384
+      ],
+      "id": "94233821-2d38-4c68-9718-63d0657cf52b",
+      "name": "When clicking ‘Execute workflow’"
     }
   ],
   "pinData": {},
   "connections": {
-    "When clicking ‘Execute workflow’": {
-      "main": [
-        [
-          {
-            "node": "Config – Window & Hub params",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Config – Window & Hub params": {
-      "main": [
-        [
-          {
-            "node": "DB – Prune showtimes",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP – Fetch Hub events": {
-      "main": [
-        [
-          {
-            "node": "Split – events array",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Split – events array": {
-      "main": [
-        [
-          {
-            "node": "Map event fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Map event fields": {
-      "main": [
-        [
-          {
-            "node": "Source mapping",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Source mapping": {
-      "main": [
-        [
-          {
-            "node": "Code – compute event_id",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code – compute event_id": {
-      "main": [
-        [
-          {
-            "node": "Events payload",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Code – build showtime rows",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "DB – Prune showtimes": {
       "main": [
-        [
-          {
-            "node": "HTTP – Fetch Hub events",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "Events payload": {
@@ -736,16 +703,11 @@
       "main": [
         [
           {
-            "node": "DB - insert showtimes",
+            "node": "IF – has time",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "DB – Upsert events": {
-      "main": [
-        []
       ]
     },
     "DB - insert showtimes": {
@@ -758,13 +720,118 @@
           }
         ]
       ]
+    },
+    "Config – Window & Hub params1": {
+      "main": [
+        [
+          {
+            "node": "DB – Prune showtimes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP – Fetch Hub events1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP – Fetch Hub events1": {
+      "main": [
+        [
+          {
+            "node": "Split – events array1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map event fields1": {
+      "main": [
+        [
+          {
+            "node": "Source mapping1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split – events array1": {
+      "main": [
+        [
+          {
+            "node": "Map event fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source mapping1": {
+      "main": [
+        [
+          {
+            "node": "Code – compute event_id1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – compute event_id1": {
+      "main": [
+        [
+          {
+            "node": "Events payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code – build showtime rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF – has time": {
+      "main": [
+        [
+          {
+            "node": "DB - insert showtimes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB – insert showtimes (no-time)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config – Window & Hub params1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "dee1aaf6-184d-4d3b-8f60-dd4aad634f24",
+  "versionId": "27879b1a-db2f-472e-b418-3364eba8402b",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "e9831d5794dbfbbfe37e8a55340f672d15c48d6c06ed0066f5da51930bb91cf7"
