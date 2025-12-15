@@ -43,6 +43,12 @@ It does not:
 - crawl event sources directly,
 - perform taxonomy/category canonicalisation,
 - serve data to consumers (that will be covered by the Query/API layer in later stages).
+- WF-INGEST does **not** try to deduplicate “same logical event, multiple URLs” cases
+  (e.g. `official` exhibitions). It assumes that:
+  - Hub already handles per-source dedupe where feasible, and
+  - DB-level dedupe is done at the `showtimes` level (via `UNIQUE (event_id, date, time, venue)`),
+    not by merging `events` rows.
+
 
 ### 1.2 High-level phases
 

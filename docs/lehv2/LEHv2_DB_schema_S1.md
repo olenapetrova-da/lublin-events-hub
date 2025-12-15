@@ -19,6 +19,31 @@ Tables in v1:
 *(ERD matches the tables below; `showtimes` and `user_state` use surrogate PKs, `events` uses the stable `event_id` from LEHv1, `sources` is a small lookup.)*
 
 ---
+## Concepts: logical event vs calendar instance
+
+For Stage 1 the schema separates two related but different things:
+
+- **Logical event** – a human-understandable event such as 
+  “Kino Bajka: Super pies i kot łotr”, independent of how many days or times it runs.
+- **Calendar instance (showtime)** – a concrete occurrence on a specific date, 
+  optionally with a specific time and venue.
+
+Tables map to these concepts as follows:
+
+- `events` – one row per logical event **as seen by ingestion**, keyed by `event_id`.
+- `showtimes` – one row per calendar instance `(event_id, date, time, venue)`.
+
+**Important nuance (Stage 1):**
+
+- For most sources (e.g. `zoom`) one logical event → one `events` row.
+- For some sources (e.g. `official`), the same logical event may have multiple URLs 
+  (for different days). In Stage 1 we **do not attempt to merge those URLs** in DB:
+  - `events` keeps one row per `(source, url)`,
+  - all calendar instances are still represented correctly in `showtimes`.
+- Analytics and future enrichment that need “true logical event” grouping can derive it
+  by combining `title`, `source`, and possibly other normalized attributes outside this
+  minimal Stage 1 schema.
+
 
 ## Data description
 
@@ -50,6 +75,11 @@ One row per **logical event**, independent from specific dates/times.
 - `event_id` is the **stable ID** reused from LEHv1 / Hub. It is computed by ingestion and does not change over time.
 - `title`, `source`, `url` are stable, event-level attributes.
 - `category_raw` stores whatever raw category string comes from Hub (`Category` field). Some sources fill it, others leave it empty. Future enrichment (taxonomy/LLM) will use this field but canonical tags will live in separate columns/tables later.
+- Stage 1 treats `(source, url)` as the “source-local identity”. This keeps ingestion simple,
+  but means that for `official` a single logical exhibition that has several separate URLs
+  (one per day) may appear as several `events` rows. This is acceptable for Stage 1 because
+  user-facing logic works through `showtimes`, not `events` directly.
+
 
 ---
 
@@ -97,6 +127,15 @@ Represents the individual showings / dates for an event.
   - if Hub provides `_EndDate`, it is used,
   - otherwise `_end_date = date` (single-day event).
 - `payment` is never `NULL`; if ingestion cannot decide, it uses `'unknown'`. This keeps bot filters simple.
+- A logical event can have many `showtimes` rows, including:
+  - multiple times on the same date,
+  - multiple dates in a multi-day run,
+  - “all-day” cases with `time IS NULL` and `_end_date > date`.
+- Even if `events` has more than one row for a conceptual event (e.g. multiple `official`
+  URLs), `showtimes` still correctly represent all calendar instances. Downstream queries
+  and bots should primarily reason in terms of `showtimes`, joining back to `events` only
+  for event-level attributes (title, URL, category_raw, etc.).
+
 
 ---
 

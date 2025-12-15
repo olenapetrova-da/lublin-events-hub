@@ -123,6 +123,26 @@ This means:
 
 No separate `source_event_id` column is used in Stage 1.
 
+### 2.3 Logical events vs calendar instances (Stage 1 view)
+
+- Hub returns **event-level objects** in `events[]`. Each such object becomes:
+  - one `events` row (per `(source, url)`),
+  - one or more `showtimes` rows, depending on dates/times.
+- Conceptually:
+  - `events` approximates “logical events”,
+  - `showtimes` holds all concrete calendar instances.
+
+For sources where one logical event has multiple URLs (e.g. `official` exhibitions with
+one page per day), Stage 1 keeps the mapping:
+
+- one Hub event (page URL) → one `events` row,
+- showtimes for all relevant dates are materialised in `showtimes`.
+
+We intentionally do **not** merge multiple `official` URLs into a single event_id in 
+Stage 1. Any higher-level deduplication by “logical event” can be done later in analytics
+or a separate enrichment workflow.
+
+
 ---
 
 ## 3. Field mapping: Hub → DB
@@ -242,6 +262,36 @@ Case C – single-day no-time events
   - `venue` / `payment` as above.
 
 Because `UNIQUE (event_id, date, time, venue)` is enforced in the DB, if the Hub ever returns an exact duplicate showtime for the same event, the insert will fail (and WF-INGEST can either ignore the conflict or handle it explicitly).
+
+### 3.2.3 Source-specific note: `official` multi-URL exhibitions
+
+For `lublin.eu` (“official”) there is a pattern where the **same exhibition or event**
+is published on several URLs – for example, one page per date.
+
+From the Hub point of view:
+
+- each URL appears as a separate event in `events[]`,
+- titles are often identical or very similar,
+- date ranges and `_EndDate` can overlap.
+
+Stage 1 ingestion follows these rules:
+
+- each `(source='official', url)` becomes one row in `public.events`,
+- `event_id` is computed from source + title + url (not from the calendar range),
+- **all calendar instances** are represented in `public.showtimes`, regardless of
+  how many URLs exist:
+  - for timed events, each `(event_id, date, time, venue)` becomes one showtime,
+  - for multi-day no-time events, one showtime row spans `date` → `_end_date`.
+
+Consequences:
+
+- User-facing queries (e.g. Telegram bot) should use `showtimes` as the primary source
+  of “what happens on a given day” and only join `events` for title/URL.
+- Some conceptual events may appear multiple times if users click different `official`
+  URLs; this is acceptable for Stage 1.
+- Future versions may add optional deduplication on top (e.g. grouping by normalized
+  title + venue + overlapping date range) without changing the Stage 1 schema.
+
 
 ### 3.3 sources
 
