@@ -1,0 +1,1127 @@
+{
+    "name": "Lublin events - Telegram",
+    "flow": [
+        {
+            "id": 16,
+            "module": "telegram:WatchUpdates",
+            "version": 1,
+            "parameters": {
+                "__IMTHOOK__": 3604530
+            },
+            "mapper": {},
+            "metadata": {
+                "designer": {
+                    "x": -1083,
+                    "y": -67
+                },
+                "restore": {
+                    "parameters": {
+                        "__IMTHOOK__": {
+                            "data": {
+                                "editable": "false"
+                            },
+                            "label": "My Telegram Bot Updates webhook"
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "__IMTHOOK__",
+                        "type": "hook:telegramapi",
+                        "label": "Webhook",
+                        "required": true
+                    }
+                ]
+            }
+        },
+        {
+            "id": 17,
+            "module": "builtin:BasicRouter",
+            "version": 1,
+            "parameters": {
+                "else": 2
+            },
+            "mapper": null,
+            "metadata": {
+                "designer": {
+                    "x": -615,
+                    "y": -152
+                }
+            },
+            "routes": [
+                {
+                    "flow": [
+                        {
+                            "id": 19,
+                            "module": "telegram:SendReplyMessage",
+                            "version": 1,
+                            "parameters": {
+                                "__IMTCONN__": 13083777
+                            },
+                            "filter": {
+                                "name": "if /start",
+                                "conditions": [
+                                    [
+                                        {
+                                            "a": "{{16.message.text}}",
+                                            "b": "/start",
+                                            "o": "text:equal"
+                                        }
+                                    ]
+                                ]
+                            },
+                            "mapper": {
+                                "text": "Cześć! Wybierz okres, dla którego chcesz zobaczyć wydarzenia:",
+                                "chatId": "{{16.message.chat.id}}",
+                                "parseMode": "",
+                                "replyMarkup": " {\"inline_keyboard\":[[{\"text\":\"Dzień\",\"callback_data\":\"p:day\"},{\"text\":\"Tydzień\",\"callback_data\":\"p:week\"}]]}",
+                                "messageThreadId": "",
+                                "replyToMessageId": "",
+                                "replyMarkupAssembleType": "reply_markup_enter"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": -315,
+                                    "y": -752,
+                                    "name": "Start: SendMessage (period menu)"
+                                },
+                                "restore": {
+                                    "expect": {
+                                        "parseMode": {
+                                            "label": "Empty"
+                                        },
+                                        "disableNotification": {
+                                            "mode": "chose"
+                                        },
+                                        "replyMarkupAssembleType": {
+                                            "label": "Enter the Reply Markup"
+                                        }
+                                    },
+                                    "parameters": {
+                                        "__IMTCONN__": {
+                                            "data": {
+                                                "scoped": "true",
+                                                "connection": "telegram"
+                                            },
+                                            "label": "BOT_TOKEN"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "__IMTCONN__",
+                                        "type": "account:telegram",
+                                        "label": "Connection",
+                                        "required": true
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "chatId",
+                                        "type": "text",
+                                        "label": "Chat ID",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "text",
+                                        "type": "text",
+                                        "label": "Text",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "messageThreadId",
+                                        "type": "number",
+                                        "label": "Message Thread ID"
+                                    },
+                                    {
+                                        "name": "parseMode",
+                                        "type": "select",
+                                        "label": "Parse Mode",
+                                        "validate": {
+                                            "enum": [
+                                                "Markdown",
+                                                "HTML"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "disableNotification",
+                                        "type": "boolean",
+                                        "label": "Disable Notifications"
+                                    },
+                                    {
+                                        "name": "disableWebPagePreview",
+                                        "type": "boolean",
+                                        "label": "Disable Link Previews"
+                                    },
+                                    {
+                                        "name": "replyToMessageId",
+                                        "type": "number",
+                                        "label": "Original Message ID"
+                                    },
+                                    {
+                                        "name": "replyMarkupAssembleType",
+                                        "type": "select",
+                                        "label": "Enter/Assemble the Reply Markup Field",
+                                        "validate": {
+                                            "enum": [
+                                                "reply_markup_enter",
+                                                "reply_markup_assemble"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "replyMarkup",
+                                        "type": "text",
+                                        "label": "Reply Markup"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        }
+                    ]
+                },
+                {
+                    "flow": [
+                        {
+                            "id": 26,
+                            "module": "telegram:SendReplyMessage",
+                            "version": 1,
+                            "parameters": {
+                                "__IMTCONN__": 13083777
+                            },
+                            "filter": {
+                                "name": "if back:start",
+                                "conditions": [
+                                    [
+                                        {
+                                            "a": "{{16.callback_query.data}}",
+                                            "b": "back:start",
+                                            "o": "text:equal"
+                                        }
+                                    ]
+                                ]
+                            },
+                            "mapper": {
+                                "chatId": "{{16.callback_query.message.chat.id}}",
+                                "text": "Cześć! Wybierz okres, dla którego chcesz zobaczyć wydarzenia:",
+                                "messageThreadId": "",
+                                "parseMode": "",
+                                "replyToMessageId": "",
+                                "replyMarkupAssembleType": "reply_markup_enter",
+                                "replyMarkup": "{\"inline_keyboard\":[\r\n  [\r\n    {\"text\":\"Dzień\",\"callback_data\":\"p:day\"},\r\n    {\"text\":\"Tydzień\",\"callback_data\":\"p:week\"}\r\n  ]\r\n]}"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": -315,
+                                    "y": 148,
+                                    "name": "Back: Start menu (callback)"
+                                },
+                                "restore": {
+                                    "parameters": {
+                                        "__IMTCONN__": {
+                                            "label": "BOT_TOKEN",
+                                            "data": {
+                                                "scoped": "true",
+                                                "connection": "telegram"
+                                            }
+                                        }
+                                    },
+                                    "expect": {
+                                        "parseMode": {
+                                            "label": "Empty"
+                                        },
+                                        "disableNotification": {
+                                            "mode": "chose"
+                                        },
+                                        "replyMarkupAssembleType": {
+                                            "label": "Enter the Reply Markup"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "__IMTCONN__",
+                                        "type": "account:telegram",
+                                        "label": "Connection",
+                                        "required": true
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "chatId",
+                                        "type": "text",
+                                        "label": "Chat ID",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "text",
+                                        "type": "text",
+                                        "label": "Text",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "messageThreadId",
+                                        "type": "number",
+                                        "label": "Message Thread ID"
+                                    },
+                                    {
+                                        "name": "parseMode",
+                                        "type": "select",
+                                        "label": "Parse Mode",
+                                        "validate": {
+                                            "enum": [
+                                                "Markdown",
+                                                "HTML"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "disableNotification",
+                                        "type": "boolean",
+                                        "label": "Disable Notifications"
+                                    },
+                                    {
+                                        "name": "disableWebPagePreview",
+                                        "type": "boolean",
+                                        "label": "Disable Link Previews"
+                                    },
+                                    {
+                                        "name": "replyToMessageId",
+                                        "type": "number",
+                                        "label": "Original Message ID"
+                                    },
+                                    {
+                                        "name": "replyMarkupAssembleType",
+                                        "type": "select",
+                                        "label": "Enter/Assemble the Reply Markup Field",
+                                        "validate": {
+                                            "enum": [
+                                                "reply_markup_enter",
+                                                "reply_markup_assemble"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "replyMarkup",
+                                        "type": "text",
+                                        "label": "Reply Markup"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        }
+                    ]
+                },
+                {
+                    "flow": [
+                        {
+                            "id": 20,
+                            "module": "telegram:SendReplyMessage",
+                            "version": 1,
+                            "parameters": {
+                                "__IMTCONN__": 13083777
+                            },
+                            "filter": {
+                                "name": "if period",
+                                "conditions": [
+                                    [
+                                        {
+                                            "a": "{{get(split(16.callback_query.data; \":\"); 1)}}",
+                                            "b": "p",
+                                            "o": "text:equal"
+                                        }
+                                    ]
+                                ]
+                            },
+                            "mapper": {
+                                "chatId": "{{16.callback_query.message.chat.id}}",
+                                "text": "Wybierz kategorię wydarzeń:",
+                                "messageThreadId": "",
+                                "parseMode": "",
+                                "replyToMessageId": "",
+                                "replyMarkupAssembleType": "reply_markup_enter",
+                                "replyMarkup": "{\"inline_keyboard\":[\r\n  [\r\n    {\r\n      \"text\": \"Film\",\r\n      \"callback_data\": \"c:film|{{16.callback_query.data}}\"\r\n    },\r\n    {\r\n      \"text\": \"Teatr\",\r\n      \"callback_data\": \"c:theatre|{{16.callback_query.data}}\"\r\n    }\r\n  ],\r\n  [\r\n    {\r\n      \"text\": \"Wróć\",\r\n      \"callback_data\": \"back:start\"\r\n    }\r\n  ]\r\n]}"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": -315,
+                                    "y": -452,
+                                    "name": "Period: SendMessage (category menu)"
+                                },
+                                "restore": {
+                                    "parameters": {
+                                        "__IMTCONN__": {
+                                            "label": "BOT_TOKEN",
+                                            "data": {
+                                                "scoped": "true",
+                                                "connection": "telegram"
+                                            }
+                                        }
+                                    },
+                                    "expect": {
+                                        "parseMode": {
+                                            "label": "Empty"
+                                        },
+                                        "disableNotification": {
+                                            "mode": "chose"
+                                        },
+                                        "replyMarkupAssembleType": {
+                                            "label": "Enter the Reply Markup"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "__IMTCONN__",
+                                        "type": "account:telegram",
+                                        "label": "Connection",
+                                        "required": true
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "chatId",
+                                        "type": "text",
+                                        "label": "Chat ID",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "text",
+                                        "type": "text",
+                                        "label": "Text",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "messageThreadId",
+                                        "type": "number",
+                                        "label": "Message Thread ID"
+                                    },
+                                    {
+                                        "name": "parseMode",
+                                        "type": "select",
+                                        "label": "Parse Mode",
+                                        "validate": {
+                                            "enum": [
+                                                "Markdown",
+                                                "HTML"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "disableNotification",
+                                        "type": "boolean",
+                                        "label": "Disable Notifications"
+                                    },
+                                    {
+                                        "name": "disableWebPagePreview",
+                                        "type": "boolean",
+                                        "label": "Disable Link Previews"
+                                    },
+                                    {
+                                        "name": "replyToMessageId",
+                                        "type": "number",
+                                        "label": "Original Message ID"
+                                    },
+                                    {
+                                        "name": "replyMarkupAssembleType",
+                                        "type": "select",
+                                        "label": "Enter/Assemble the Reply Markup Field",
+                                        "validate": {
+                                            "enum": [
+                                                "reply_markup_enter",
+                                                "reply_markup_assemble"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "replyMarkup",
+                                        "type": "text",
+                                        "label": "Reply Markup"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        }
+                    ]
+                },
+                {
+                    "flow": [
+                        {
+                            "id": 21,
+                            "module": "util:SetVariables",
+                            "version": 1,
+                            "parameters": {},
+                            "filter": {
+                                "name": "all params are set",
+                                "conditions": [
+                                    [
+                                        {
+                                            "a": "{{get(split(16.callback_query.data; \":\"); 1)}}",
+                                            "b": "c",
+                                            "o": "text:equal"
+                                        }
+                                    ]
+                                ]
+                            },
+                            "mapper": {
+                                "scope": "roundtrip",
+                                "variables": [
+                                    {
+                                        "name": "date",
+                                        "value": "{{formatDate(now; \"YYYY-MM-DD\"; \"Europe/Warsaw\")}}"
+                                    },
+                                    {
+                                        "name": "category",
+                                        "value": "{{replace(get(split(16.callback_query.data; \"|\"); 1); \"c:\"; \"\")}}"
+                                    },
+                                    {
+                                        "name": "period",
+                                        "value": "{{replace(get(split(16.callback_query.data; \"|\"); 2); \"p:\"; \"\")}}"
+                                    },
+                                    {
+                                        "name": "limit",
+                                        "value": "5"
+                                    },
+                                    {
+                                        "name": "offset",
+                                        "value": "0"
+                                    },
+                                    {
+                                        "name": "chat_id",
+                                        "value": "{{16.callback_query.message.chat.id}}"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": -28,
+                                    "y": -156,
+                                    "name": "Category: full flow"
+                                },
+                                "restore": {
+                                    "expect": {
+                                        "scope": {
+                                            "label": "One cycle"
+                                        },
+                                        "variables": {
+                                            "items": [
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null
+                                            ]
+                                        }
+                                    }
+                                },
+                                "expect": [
+                                    {
+                                        "name": "variables",
+                                        "spec": [
+                                            {
+                                                "name": "name",
+                                                "type": "text",
+                                                "label": "Variable name",
+                                                "required": true
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "any",
+                                                "label": "Variable value"
+                                            }
+                                        ],
+                                        "type": "array",
+                                        "label": "Variables"
+                                    },
+                                    {
+                                        "name": "scope",
+                                        "type": "select",
+                                        "label": "Variable lifetime",
+                                        "required": true,
+                                        "validate": {
+                                            "enum": [
+                                                "roundtrip",
+                                                "execution"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "interface": [
+                                    {
+                                        "name": "date",
+                                        "type": "any",
+                                        "label": "date"
+                                    },
+                                    {
+                                        "name": "category",
+                                        "type": "any",
+                                        "label": "category"
+                                    },
+                                    {
+                                        "name": "period",
+                                        "type": "any",
+                                        "label": "period"
+                                    },
+                                    {
+                                        "name": "limit",
+                                        "type": "any",
+                                        "label": "limit"
+                                    },
+                                    {
+                                        "name": "offset",
+                                        "type": "any",
+                                        "label": "offset"
+                                    },
+                                    {
+                                        "name": "chat_id",
+                                        "type": "any",
+                                        "label": "chat_id"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        },
+                        {
+                            "id": 4,
+                            "module": "http:ActionSendData",
+                            "version": 3,
+                            "parameters": {
+                                "handleErrors": true,
+                                "useNewZLibDeCompress": true
+                            },
+                            "mapper": {
+                                "ca": "",
+                                "qs": [
+                                    {
+                                        "name": "date",
+                                        "value": "{{21.date}}"
+                                    },
+                                    {
+                                        "name": "period",
+                                        "value": "{{21.period}}"
+                                    },
+                                    {
+                                        "name": "limit",
+                                        "value": "{{21.limit}}"
+                                    },
+                                    {
+                                        "name": "offset",
+                                        "value": "{{21.offset}}"
+                                    },
+                                    {
+                                        "name": "category",
+                                        "value": "{{21.category}}"
+                                    }
+                                ],
+                                "url": "https://script.google.com/macros/s/AKfycbxkBksb7Rpljs6ZZKhTc43ySbnPjonmPVLVEPEcZonW7SQInWLM8MIGZv71cEv05BX4Zg/exec",
+                                "gzip": true,
+                                "method": "get",
+                                "headers": [],
+                                "timeout": "",
+                                "useMtls": false,
+                                "authPass": "",
+                                "authUser": "",
+                                "bodyType": "",
+                                "serializeUrl": false,
+                                "shareCookies": false,
+                                "parseResponse": true,
+                                "followRedirect": true,
+                                "useQuerystring": false,
+                                "followAllRedirects": false,
+                                "rejectUnauthorized": true
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": -13,
+                                    "y": 244
+                                },
+                                "restore": {
+                                    "expect": {
+                                        "qs": {
+                                            "mode": "chose",
+                                            "items": [
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null
+                                            ]
+                                        },
+                                        "method": {
+                                            "mode": "chose",
+                                            "label": "GET"
+                                        },
+                                        "headers": {
+                                            "mode": "chose"
+                                        },
+                                        "bodyType": {
+                                            "label": "Empty"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "handleErrors",
+                                        "type": "boolean",
+                                        "label": "Evaluate all states as errors (except for 2xx and 3xx )",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "useNewZLibDeCompress",
+                                        "type": "hidden"
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "url",
+                                        "type": "url",
+                                        "label": "URL",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "serializeUrl",
+                                        "type": "boolean",
+                                        "label": "Serialize URL",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "method",
+                                        "type": "select",
+                                        "label": "Method",
+                                        "required": true,
+                                        "validate": {
+                                            "enum": [
+                                                "get",
+                                                "head",
+                                                "post",
+                                                "put",
+                                                "patch",
+                                                "delete",
+                                                "options"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "headers",
+                                        "spec": [
+                                            {
+                                                "name": "name",
+                                                "type": "text",
+                                                "label": "Name",
+                                                "required": true
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "text",
+                                                "label": "Value"
+                                            }
+                                        ],
+                                        "type": "array",
+                                        "label": "Headers"
+                                    },
+                                    {
+                                        "name": "qs",
+                                        "spec": [
+                                            {
+                                                "name": "name",
+                                                "type": "text",
+                                                "label": "Name",
+                                                "required": true
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "text",
+                                                "label": "Value"
+                                            }
+                                        ],
+                                        "type": "array",
+                                        "label": "Query String"
+                                    },
+                                    {
+                                        "name": "bodyType",
+                                        "type": "select",
+                                        "label": "Body type",
+                                        "validate": {
+                                            "enum": [
+                                                "raw",
+                                                "x_www_form_urlencoded",
+                                                "multipart_form_data"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "parseResponse",
+                                        "type": "boolean",
+                                        "label": "Parse response",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "authUser",
+                                        "type": "text",
+                                        "label": "User name"
+                                    },
+                                    {
+                                        "name": "authPass",
+                                        "type": "password",
+                                        "label": "Password"
+                                    },
+                                    {
+                                        "name": "timeout",
+                                        "type": "uinteger",
+                                        "label": "Timeout",
+                                        "validate": {
+                                            "max": 300,
+                                            "min": 1
+                                        }
+                                    },
+                                    {
+                                        "name": "shareCookies",
+                                        "type": "boolean",
+                                        "label": "Share cookies with other HTTP modules",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "ca",
+                                        "type": "cert",
+                                        "label": "Self-signed certificate"
+                                    },
+                                    {
+                                        "name": "rejectUnauthorized",
+                                        "type": "boolean",
+                                        "label": "Reject connections that are using unverified (self-signed) certificates",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "followRedirect",
+                                        "type": "boolean",
+                                        "label": "Follow redirect",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "useQuerystring",
+                                        "type": "boolean",
+                                        "label": "Disable serialization of multiple same query string keys as arrays",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "gzip",
+                                        "type": "boolean",
+                                        "label": "Request compressed content",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "useMtls",
+                                        "type": "boolean",
+                                        "label": "Use Mutual TLS",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "followAllRedirects",
+                                        "type": "boolean",
+                                        "label": "Follow all redirect",
+                                        "required": true
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        },
+                        {
+                            "id": 24,
+                            "module": "builtin:BasicFeeder",
+                            "version": 1,
+                            "parameters": {},
+                            "mapper": {
+                                "array": "{{4.data.results}}"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": 397,
+                                    "y": 254
+                                },
+                                "restore": {
+                                    "expect": {
+                                        "array": {
+                                            "mode": "edit"
+                                        }
+                                    }
+                                },
+                                "expect": [
+                                    {
+                                        "mode": "edit",
+                                        "name": "array",
+                                        "spec": [],
+                                        "type": "array",
+                                        "label": "Array"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": 25,
+                            "module": "util:TextAggregator",
+                            "version": 1,
+                            "parameters": {
+                                "feeder": 24,
+                                "rowSeparator": "\n"
+                            },
+                            "mapper": {
+                                "value": "{{24.date}} — {{24.title}} — {{24.times}}{{if(24.venue = \"\"; \"\"; \" — \" + 24.venue)}}"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": 716,
+                                    "y": 264
+                                },
+                                "restore": {
+                                    "extra": {
+                                        "feeder": {
+                                            "label": "Iterator [24]"
+                                        }
+                                    },
+                                    "parameters": {
+                                        "rowSeparator": {
+                                            "label": "New row"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "rowSeparator",
+                                        "type": "select",
+                                        "label": "Row separator",
+                                        "validate": {
+                                            "enum": [
+                                                "\n",
+                                                "\t",
+                                                "other"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "value",
+                                        "type": "text",
+                                        "label": "Text"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        },
+                        {
+                            "id": 6,
+                            "module": "util:SetVariables",
+                            "version": 1,
+                            "parameters": {},
+                            "mapper": {
+                                "scope": "roundtrip",
+                                "variables": [
+                                    {
+                                        "name": "final_text",
+                                        "value": "{{if(4.data.ok = false; \"Coś poszło nie tak przy pobieraniu listy wydarzeń. Spróbuj ponownie za chwilę.\"; \"Wydarzenia na \" + if(21.period = \"day\"; \"dziś\"; \"ten tydzień\") + \" (\" + 21.date + \"), kategoria: \" + if(21.category = \"film\"; \"film\"; if(21.category = \"theatre\"; \"teatr\"; 21.category)) + newline + newline + if(length(4.data.results) = 0; \"Brak wydarzeń dla wybranych filtrów.\"; 25.text))}}"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": 1063,
+                                    "y": 287,
+                                    "name": "final"
+                                },
+                                "restore": {
+                                    "expect": {
+                                        "scope": {
+                                            "label": "One cycle"
+                                        },
+                                        "variables": {
+                                            "items": [
+                                                null
+                                            ]
+                                        }
+                                    }
+                                },
+                                "expect": [
+                                    {
+                                        "name": "variables",
+                                        "spec": [
+                                            {
+                                                "name": "name",
+                                                "type": "text",
+                                                "label": "Variable name",
+                                                "required": true
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "any",
+                                                "label": "Variable value"
+                                            }
+                                        ],
+                                        "type": "array",
+                                        "label": "Variables"
+                                    },
+                                    {
+                                        "name": "scope",
+                                        "type": "select",
+                                        "label": "Variable lifetime",
+                                        "required": true,
+                                        "validate": {
+                                            "enum": [
+                                                "roundtrip",
+                                                "execution"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "interface": [
+                                    {
+                                        "name": "final_text",
+                                        "type": "any",
+                                        "label": "final_text"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": 23,
+                            "module": "telegram:SendReplyMessage",
+                            "version": 1,
+                            "parameters": {
+                                "__IMTCONN__": 13083777
+                            },
+                            "mapper": {
+                                "chatId": "{{16.callback_query.message.chat.id}}",
+                                "text": "{{6.final_text}}",
+                                "messageThreadId": "",
+                                "parseMode": "",
+                                "replyToMessageId": "",
+                                "replyMarkupAssembleType": "reply_markup_enter",
+                                "replyMarkup": "{\"inline_keyboard\":[\r\n  [\r\n    {\r\n      \"text\": \"Start\",\r\n      \"callback_data\": \"back:start\"\r\n    }\r\n  ]\r\n]}"
+                            },
+                            "metadata": {
+                                "designer": {
+                                    "x": 1319,
+                                    "y": 300
+                                },
+                                "restore": {
+                                    "parameters": {
+                                        "__IMTCONN__": {
+                                            "label": "BOT_TOKEN",
+                                            "data": {
+                                                "scoped": "true",
+                                                "connection": "telegram"
+                                            }
+                                        }
+                                    },
+                                    "expect": {
+                                        "parseMode": {
+                                            "label": "Empty"
+                                        },
+                                        "disableNotification": {
+                                            "mode": "chose"
+                                        },
+                                        "replyMarkupAssembleType": {
+                                            "label": "Enter the Reply Markup"
+                                        }
+                                    }
+                                },
+                                "parameters": [
+                                    {
+                                        "name": "__IMTCONN__",
+                                        "type": "account:telegram",
+                                        "label": "Connection",
+                                        "required": true
+                                    }
+                                ],
+                                "expect": [
+                                    {
+                                        "name": "chatId",
+                                        "type": "text",
+                                        "label": "Chat ID",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "text",
+                                        "type": "text",
+                                        "label": "Text",
+                                        "required": true
+                                    },
+                                    {
+                                        "name": "messageThreadId",
+                                        "type": "number",
+                                        "label": "Message Thread ID"
+                                    },
+                                    {
+                                        "name": "parseMode",
+                                        "type": "select",
+                                        "label": "Parse Mode",
+                                        "validate": {
+                                            "enum": [
+                                                "Markdown",
+                                                "HTML"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "disableNotification",
+                                        "type": "boolean",
+                                        "label": "Disable Notifications"
+                                    },
+                                    {
+                                        "name": "disableWebPagePreview",
+                                        "type": "boolean",
+                                        "label": "Disable Link Previews"
+                                    },
+                                    {
+                                        "name": "replyToMessageId",
+                                        "type": "number",
+                                        "label": "Original Message ID"
+                                    },
+                                    {
+                                        "name": "replyMarkupAssembleType",
+                                        "type": "select",
+                                        "label": "Enter/Assemble the Reply Markup Field",
+                                        "validate": {
+                                            "enum": [
+                                                "reply_markup_enter",
+                                                "reply_markup_assemble"
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "name": "replyMarkup",
+                                        "type": "text",
+                                        "label": "Reply Markup"
+                                    }
+                                ],
+                                "advanced": true
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "metadata": {
+        "instant": true,
+        "version": 1,
+        "scenario": {
+            "roundtrips": 1,
+            "maxErrors": 3,
+            "autoCommit": true,
+            "autoCommitTriggerLast": true,
+            "sequential": false,
+            "slots": null,
+            "confidential": false,
+            "dataloss": false,
+            "dlq": false,
+            "freshVariables": false
+        },
+        "designer": {
+            "orphans": []
+        },
+        "zone": "eu2.make.com",
+        "notes": []
+    }
+}
