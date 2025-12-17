@@ -8,7 +8,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1632,
+        1840,
         656
       ],
       "id": "ff502883-d746-46e7-8557-2c666978af56",
@@ -23,7 +23,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        800,
+        1008,
         160
       ],
       "id": "4986134c-7fdb-4e51-a65e-b510018aa7a0",
@@ -82,7 +82,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1888,
+        2096,
         384
       ],
       "id": "008c93c1-4417-494c-8523-77184de1b1bb",
@@ -176,7 +176,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2080,
+        2288,
         384
       ],
       "id": "6860fc33-98bf-491f-981e-0939b4f4b75b",
@@ -301,7 +301,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1888,
+        2096,
         656
       ],
       "id": "ba4e21d9-342b-43bf-b57d-15bc020aef09",
@@ -320,7 +320,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2304,
+        2512,
         656
       ],
       "id": "5b752aa9-d184-4dc0-a014-3a1cd14bebfd",
@@ -385,7 +385,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        592,
+        800,
         384
       ],
       "id": "32662818-a110-42db-8552-57ed584dc573",
@@ -436,7 +436,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        800,
+        1008,
         384
       ],
       "id": "eea2d5cf-25b7-433f-8f93-c3831a2573ce",
@@ -513,7 +513,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1216,
+        1424,
         384
       ],
       "id": "0331ae24-055a-4da3-a85e-88ba9f40fd98",
@@ -527,7 +527,7 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        1008,
+        1216,
         384
       ],
       "id": "fd2e53f9-906d-4cbb-99f0-4c528cb10243",
@@ -610,7 +610,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1440,
+        1648,
         384
       ],
       "id": "040c4f9f-e9cf-4fd3-9972-02c35d31b3fd",
@@ -623,7 +623,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1632,
+        1840,
         384
       ],
       "id": "ffaba23d-8b7f-4381-9b23-7b117ee73b59",
@@ -643,7 +643,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        352,
+        560,
         384
       ],
       "id": "079326c1-8fc7-416d-a75c-0e786c75af67",
@@ -658,12 +658,171 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2096,
+        2304,
         656
       ],
       "id": "62d66d99-ffe0-41f2-adc7-4593f5fffffb",
       "name": "Execute a SQL query",
       "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "ingest_log",
+          "mode": "list",
+          "cachedResultName": "ingest_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ok": true,
+            "status": "ok",
+            "workflow": "WF-INGEST",
+            "execution_id": "{{ $execution.id }}",
+            "run_at": "={{ $json.ran_at }}",
+            "events_distinct": "={{ $json.pipeline.events_distinct }}",
+            "showtimes_total": "={{ $json.pipeline.showtimes_total }}",
+            "per_source": "={{ { sources: $json.hub.per_source } }}",
+            "config": "={{ $json.config }}",
+            "summary": "={{ $json }}",
+            "ingest_log_id": 0
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ingest_log_id",
+              "displayName": "ingest_log_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_at",
+              "displayName": "run_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ok",
+              "displayName": "ok",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "events_distinct",
+              "displayName": "events_distinct",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "showtimes_total",
+              "displayName": "showtimes_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "per_source",
+              "displayName": "per_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "config",
+              "displayName": "config",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2720,
+        656
+      ],
+      "id": "8dd0381f-6ab0-4306-94a5-67b539416ca5",
+      "name": "Insert ingest_log (ok)",
       "credentials": {
         "postgres": {
           "id": "yWlCCvDG4OzxvCkA",
@@ -809,15 +968,27 @@
           }
         ]
       ]
+    },
+    "Summary – metrics": {
+      "main": [
+        [
+          {
+            "node": "Insert ingest_log (ok)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1",
     "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "errorWorkflow": "jrZWQbZ7X1t8nTVS"
   },
-  "versionId": "22c4351d-bd16-4606-bd81-1a754a79561c",
+  "versionId": "a24eb70c-9295-4c8f-ab97-84cb49b508da",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "e9831d5794dbfbbfe37e8a55340f672d15c48d6c06ed0066f5da51930bb91cf7"
