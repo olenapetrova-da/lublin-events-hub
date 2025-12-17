@@ -112,20 +112,22 @@ In `public.events`:
 
 For each Hub event, the ingestion workflow computes:
 
-- `events.event_id` – stable text ID (same concept as LEHv1: deterministic ID for a logical event).
+- `events.event_id` – stable text ID derived from `(source, event_ref)`, where `event_ref` is provided by the Hub and is stable for the same logical event even if the source uses multiple URLs.
 - `events` has:
   - `PRIMARY KEY (event_id)`
   - `UNIQUE (source, url)` (guardrail only)
 
 This means:
 
-- `event_id` is the **primary key** used to join with `showtimes`.
-- The **source-local logical identity** is `(source, event_ref)` (not `(source, url)`).
-  - Some sources may expose different URLs for the same logical event (e.g. one page per day).
-- `WF-INGEST` derives `event_id` from `(source, event_ref)` (example: `sha1(source + "|" + event_ref)`).
-- `events.url` stores a full URL for user click-through and may change between runs; it is not a logical identity key.
+- `event_id` is the **identity key** and the join key to `showtimes`.
+- `url` is a user-facing attribute (a representative details page URL) and may change between runs.
+- `(source, url)` is a **guardrail** against accidental duplicate URL rows, not the identity rule.
 
-Stage 1 does not store `event_ref` in the DB; it is consumed to compute `event_id`.
+No separate `source_event_id` column is used in Stage 1 (the Hub’s `event_ref` is used to compute `event_id`).
+
+For sources where one logical event has multiple URLs (example: per-day pages), Stage 1 relies on `event_ref` so that:
+- multiple URLs can still map to one logical event (`event_id`),
+- all calendar instances are represented in `showtimes`.
 
 
 ### 2.3 Logical events vs calendar instances (Stage 1 view)
@@ -265,36 +267,19 @@ Case C – single-day no-time events
   - `_end_date = date`
   - `venue` / `payment` as above.
 
-Because `UNIQUE (event_id, date, time, venue)` is enforced in the DB, if the Hub ever returns an exact duplicate showtime for the same event, the insert will fail (and WF-INGEST can either ignore the conflict or handle it explicitly).
+Because `UNIQUE NULLS NOT DISTINCT (event_id, date, time, venue)` is enforced in the DB, WF-INGEST can ignore conflicts (do nothing) or count them for diagnostics.
 
-### 3.2.3 Source-specific note: `official` multi-URL exhibitions
+### 3.2.3 Source-specific note: multi-URL patterns (example: `official`)
 
-For `lublin.eu` (“official”) there is a pattern where the **same exhibition or event**
-is published on several URLs – for example, one page per date.
+Some sources can publish the same logical event on multiple URLs (for example, one page per day).
 
-From the Hub point of view:
+Stage 1 handles this by relying on Hub-provided `event_ref`:
+- adapters emit `event_ref` that stays stable for the same logical event,
+- ingestion computes `event_id` from `(source, event_ref)` and upserts `events` by `event_id` (so only one `events` row exists),
+- `events.url` remains a user-facing link (representative source page) and may change between runs,
+- all distinct calendar instances are stored in `showtimes`.
 
-- each URL appears as a separate event in `events[]`,
-- titles are often identical or very similar,
-- date ranges and `_EndDate` can overlap.
-
-Stage 1 ingestion follows these rules:
-
-- each `(source='official', url)` becomes one row in `public.events`,
-- `event_id` is computed from source + title + url (not from the calendar range),
-- **all calendar instances** are represented in `public.showtimes`, regardless of
-  how many URLs exist:
-  - for timed events, each `(event_id, date, time, venue)` becomes one showtime,
-  - for multi-day no-time events, one showtime row spans `date` → `_end_date`.
-
-Consequences:
-
-- User-facing queries (e.g. Telegram bot) should use `showtimes` as the primary source
-  of “what happens on a given day” and only join `events` for title/URL.
-- Some conceptual events may appear multiple times if users click different `official`
-  URLs; this is acceptable for Stage 1.
-- Future versions may add optional deduplication on top (e.g. grouping by normalized
-  title + venue + overlapping date range) without changing the Stage 1 schema.
+This keeps “logical event identity” stable without tying the DB identity to URL patterns.
 
 
 ### 3.3 sources

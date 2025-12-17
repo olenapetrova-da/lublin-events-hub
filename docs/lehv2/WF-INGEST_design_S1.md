@@ -264,24 +264,28 @@ For failed runs:
 
 In all cases, the n8n execution log is the primary source of detailed diagnostics.
 
-### 5.2 Optional future: `ingestion_log` table
+### 7.2 ingest_log table (implemented)
 
-This part is optional / future, not required for Stage 1 and not part of `schema_stage1.sql` today.
+We write one row to public.ingest_log per WF-INGEST run.
 
-If later you decide to persist ingestion summaries in DB, you can add a small `public.ingestion_log` table with columns such as:
+Required fields:
+- run_ts (now)
+- workflow = 'WF-INGEST'
+- ok (true/false)
+- status ('ok' | 'partial' | 'error')
 
-- `run_at`,  
-- `window_start`,  
-- `window_end`,  
-- `hub_events_count`,  
-- `events_upserted`,  
-- `showtimes_inserted`,  
-- `showtimes_deleted`,  
-- `status`,  
-- `message`.
+Recommended payload fields:
+- events_count, showtimes_count
+- per_source: store as JSON object, not array (e.g. {"sources": <hub.per_source array>})
+- config: the Hub request config used for this run
+- summary: computed metrics (whatever you want to trend later)
+- error: on failures, store the error message/stack snippet
 
-`WF-INGEST` would then add a final DB step to insert one row per run using the summary object. Until that table exists, the workflow simply skips this step and relies on n8n’s execution history.
+### 7.3 Error handling (WF-INGEST_ERROR_LOG)
 
+A separate workflow uses Error Trigger to log failures from WF-INGEST into ingest_log (ok=false, status='error', error populated) and optionally notify (e.g., Telegram/email).
+
+Note: Error Trigger runs only for automatic executions (Schedule), not manual runs.
 ---
 
 ## 6. n8n workflow skeleton
@@ -346,7 +350,7 @@ Node names are indicative; exact names/types can differ as long as behaviour sta
       - sets `status` and `message`,  
       - outputs a single summary object.
 
-11. **Optional DB – Write ingestion_log (future)**  
+11. **DB – insert ingest_log row (ok)**  
     - Only used if the optional `public.ingestion_log` table is created later.  
     - Inserts the summary into that table.  
     - Not required for Stage 1 completion.

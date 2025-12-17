@@ -257,9 +257,8 @@ The roadmap assumes **Option A** for simplicity. If you choose Option B, the fun
      - `events`: upsert on `source` + `source_event_id`.
      - `showtimes`: remove stale showtimes for the horizon and insert fresh ones.
    - Logging:
-     - store aggregated counts in logs and/or a simple `ingest_log` table:
-       - run id, timestamp, total events, showtimes, per-source counts, status.
-
+      - write one ingest_log row on success (status='ok'): timestamp, window, totals, per_source, dedupe_stats, execution id.
+      - write one ingest_log row on failure (status='error') via WF-INGEST_ERROR_LOG (Error Trigger): timestamp + error payload + execution id.
 3. **Manual checks**
    - Run ingestion manually.
    - Query DB directly (via DBeaver/psql) to confirm:

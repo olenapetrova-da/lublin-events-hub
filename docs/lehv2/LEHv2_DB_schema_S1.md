@@ -5,12 +5,13 @@ Scope: minimal schema to store events + showtimes coming from the existing Hub J
 Runtime DB: **PostgreSQL in Supabase**, `public` schema, no table prefixes.  
 Retention: **7-day horizon** – ingestion keeps showtimes for the coming days, with correct handling of multi-day events.
 
-Tables in v1:
+## Tables in v1:
 
 - `events`
 - `showtimes`
 - `sources`
 - `user_state`
+- `ingest_log`
 
 ## ERD
 
@@ -69,13 +70,11 @@ One row per **logical event**, independent from specific dates/times.
 
 **Rationale**
 
-- `event_id` is the **stable ID** reused from LEHv1 / Hub. It is computed by ingestion and does not change over time.
-- `title`, `source`, `url` are stable, event-level attributes.
-- `category_raw` stores whatever raw category string comes from Hub (`Category` field). Some sources fill it, others leave it empty. Future enrichment (taxonomy/LLM) will use this field but canonical tags will live in separate columns/tables later.
-- Stage 1 treats `(source, url)` as the “source-local identity”. This keeps ingestion simple,
-  but means that for `official` a single logical exhibition that has several separate URLs
-  (one per day) may appear as several `events` rows. This is acceptable for Stage 1 because
-  user-facing logic works through `showtimes`, not `events` directly.
+- `event_id` is the **stable ID** computed by ingestion from `(source, event_ref)` (where `event_ref` is provided by the Hub and stays stable for the same logical event even if the source uses multiple URLs).
+- `title` is event-level text and may change slightly over time.
+- `url` is a representative source page URL kept for the user; it may change between runs.
+- `category_raw` stores whatever raw category string comes from the Hub; canonical tags will live in separate columns/tables later.
+- `(source, url)` is kept as an additional uniqueness **guardrail**, but it is not the identity key (identity is `event_id`).
 
 
 ---
@@ -213,6 +212,33 @@ One row per chat/user.
 - Text values give flexibility to adjust bot flow without schema changes; stricter enums can be added later if needed.
 
 ---
+
+### ingest_log
+
+Purpose: one row per WF-INGEST run (success or failure), to answer:
+- last run time
+- counts per run
+- per-source diagnostics
+- error details (if any)
+
+| column          | type         | nullable | default                 | notes |
+|----------------|--------------|----------|-------------------------|------|
+| ingest_log_id  | bigint       | no       | identity                | primary key |
+| run_ts         | timestamptz  | no       | now()                   | run timestamp |
+| workflow       | text         | no       | 'WF-INGEST'             | workflow name |
+| execution_id   | text         | yes      |                         | n8n execution id (if available) |
+| ok             | boolean      | no       |                         | true/false |
+| status         | text         | no       |                         | e.g. 'ok', 'partial', 'error' |
+| events_count   | integer      | yes      |                         | total events processed/inserted (your metric definition) |
+| showtimes_count| integer      | yes      |                         | total showtimes processed/inserted |
+| per_source     | jsonb        | yes      |                         | JSON **object** (not array). Recommended shape: {"sources":[...hub.per_source...]} |
+| config         | jsonb        | yes      |                         | run config (date/period/days/pages/limit/etc) |
+| summary        | jsonb        | yes      |                         | any computed summary metrics |
+| error          | text         | yes      |                         | error message/details for failures |
+
+**Constraints / indexes** :
+- PK: ingest_log_pkey(ingest_log_id)
+
 
 ## Identifier strategy
 
