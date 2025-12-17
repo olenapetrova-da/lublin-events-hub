@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict xIsNujHss0ufOnp3holgqdKcFgayEHD4ZbjsN86dSVug2F7YseCOwaH1Tbgkkc5
+\restrict TK3dHBY2CP0Ko4G6wJCilLmX0C6tlb3MvFB8qC2fTYGBeVyXl3pQCdmK3DPwdje
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.1
@@ -2920,6 +2920,45 @@ CREATE TABLE public.events (
 
 
 --
+-- Name: ingest_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingest_log (
+    ingest_log_id bigint NOT NULL,
+    run_at timestamp with time zone DEFAULT now() NOT NULL,
+    workflow text DEFAULT 'WF-INGEST'::text NOT NULL,
+    execution_id text,
+    ok boolean NOT NULL,
+    status text NOT NULL,
+    events_distinct integer,
+    showtimes_total integer,
+    per_source jsonb,
+    config jsonb,
+    summary jsonb,
+    error text
+);
+
+
+--
+-- Name: ingest_log_ingest_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ingest_log_ingest_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ingest_log_ingest_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ingest_log_ingest_log_id_seq OWNED BY public.ingest_log.ingest_log_id;
+
+
+--
 -- Name: leh_test_ping; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3253,6 +3292,13 @@ ALTER TABLE ONLY auth.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('auth.r
 
 
 --
+-- Name: ingest_log ingest_log_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingest_log ALTER COLUMN ingest_log_id SET DEFAULT nextval('public.ingest_log_ingest_log_id_seq'::regclass);
+
+
+--
 -- Name: leh_test_ping id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3519,6 +3565,14 @@ ALTER TABLE ONLY public.events
 
 ALTER TABLE ONLY public.events
     ADD CONSTRAINT events_uq_source_url UNIQUE (source, url);
+
+
+--
+-- Name: ingest_log ingest_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingest_log
+    ADD CONSTRAINT ingest_log_pkey PRIMARY KEY (ingest_log_id);
 
 
 --
@@ -4010,6 +4064,20 @@ CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous);
 
 
 --
+-- Name: ingest_log_ok_run_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingest_log_ok_run_at_idx ON public.ingest_log USING btree (ok, run_at DESC);
+
+
+--
+-- Name: ingest_log_run_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingest_log_run_at_idx ON public.ingest_log USING btree (run_at DESC);
+
+
+--
 -- Name: showtimes_idx_date_payment; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4472,6 +4540,12 @@ ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: ingest_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ingest_log ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: leh_test_ping; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -4618,5 +4692,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict xIsNujHss0ufOnp3holgqdKcFgayEHD4ZbjsN86dSVug2F7YseCOwaH1Tbgkkc5
+\unrestrict TK3dHBY2CP0Ko4G6wJCilLmX0C6tlb3MvFB8qC2fTYGBeVyXl3pQCdmK3DPwdje
 
