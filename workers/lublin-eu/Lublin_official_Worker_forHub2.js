@@ -14,6 +14,23 @@
 // * We only set stopped_reason="budget" when budget is actually hit.
 //
 // ---------- response helpers ----------
+
+// Lublin_official_Worker_forHub2.js — RESILIENT LIST CRAWL + A–F applied
+// ADRs: 0006, 0008, 0009, 0010, 0011
+// - Parse per .event card; .event-date-time BEFORE title
+// - Time extraction handles inner <span> (clock icon)
+// - Detail dates via label/value spans (YYYY-MM-DD and DD-MM-YYYY)
+// - Skip bad *day-1/page-1* (and any day) instead of aborting the whole week
+// - Broaden retries: 0/408/429/500/502/503/504 + 520/522/523/524
+// - Telemetry: has_more, stopped_reason, error (fatal only), failed_urls[]
+// - Deterministic sort: Date ↑, earliest Time ↑, Title A→Z
+// - Tweak: clear "00:00" for multi-day/exhibition-like
+//
+// Notes:
+// * We *don’t* mark stopped_reason="error" for per-day failures we skipped. That’s not fatal.
+// * We only set stopped_reason="budget" when budget is actually hit.
+//
+// ---------- response helpers ----------
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -332,6 +349,7 @@ function parseOfficialList(raw, baseUrl) {
       Venue: "",
       Category: "",
       Link: href,
+      event_ref: officialEventRef(href),   // <-- adde to address issue with several pages for the same logical event
       "Payment for Entry": "",
       Source: "lublin.eu",
       _EndDate: isoEnd,
@@ -461,4 +479,22 @@ function groupSameDayShowtimes(list){
     }
   }
   return [...map.values()];
+}
+
+function officialEventRef(href){
+  const p = urlPath(href);                         // "/.../slug,87359,0,w.html"
+  const seg = (p.split("/").filter(Boolean).pop() || "").toLowerCase();
+
+  if (!seg) return p.toLowerCase();
+
+  // drop ".html"
+  let s = seg.replace(/\.html$/i, "");
+
+  // drop trailing ",<id>,0,w" (official pattern)
+  s = s.replace(/,\d+,0,w$/i, "");
+
+  // if anything left with commas, keep only the slug part
+  s = s.split(",")[0];
+
+  return s || p.toLowerCase();
 }

@@ -27,6 +27,35 @@
 // Sheet mode (sheet=1) returns rows[] with 8 columns (NO Image URL): 
 // [Title, Date, Time, Venue, Category, Link, Payment for Entry, Source]
 
+// CHANGELOG — 2025-11-07 (addendum #3)
+// - New: Cross-source **venue-less fallback** dedupe so Official (no Venue on list) can merge with Zoom
+//   without enabling enrichment. The fallback requires:
+//     • Same Date
+//     • Time overlap (identical HH:MM or within ±5 minutes) — only if both have at least one time
+//     • AND (Title token Jaccard ≥ 0.92  OR  URL slug token Jaccard ≥ 0.70)
+//   On merge we union showtimes, prefer non-empty Venue/Payment, and pick Source with priority Zoom > Official.
+//   Stats now include `fallback_merges`.
+//
+// - Why: lublin.eu list cards don’t expose Venue; with the primary rule (title+date+time+venue)
+//   duplicates from Zoom/Official weren’t merged. This fallback solves that without extra subrequests.
+//
+// NOTE: No API/response shape changes; just smarter dedupe behavior.
+
+// CHANGELOG — 2025-11-05 (addendum #2)
+// - New: Ranking — timed events first, then ongoing/no-time; within each group sort by Date, then earliest Time.
+// - No API changes. Rows & events reflect the new order.
+// - (Context) Pass-through for include_in_progress already present.
+
+// CHANGELOG — 2025-11-05 (addendum)
+// - New: Pass-through for ?include_in_progress=1|0 (default if missing: 1) and ?inprog_pages=1..3 (default: 1).
+//        The Hub forwards these to adapters so we can include ongoing events from /w-trakcie by default,
+//        but still have a switch for time-specific use cases or as a kill-switch if needed.
+
+// lublin-events-hub — Orchestrator for multiple adapters (bindings preferred, HTTP fallback)
+// Contract: adapters return JSON with events[] when sheet=0 (default). Hub dedupes + caps.
+// Sheet mode (sheet=1) returns rows[] with 8 columns (NO Image URL): 
+// [Title, Date, Time, Venue, Category, Link, Payment for Entry, Source]
+
 export default {
   async fetch(request, env, ctx) {
     const u = new URL(request.url);
@@ -170,7 +199,7 @@ async function callAdapter(src, qs, env){
       const req = new Request(url, { headers, method: "GET" });
       const res = await env[src.name].fetch(req);
       const raw = await res.text();
-      let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 800) }; }
+      let data = {}; try { data = JSON.parse(raw); } catch {  data = { raw: raw.slice(0, 800) }; }
       return { ok: res.ok, data, source: `[binding:${src.name}]`, status: res.status };
     } else {
       const url = withSlash(src.url) + qs;
@@ -182,7 +211,7 @@ async function callAdapter(src, qs, env){
           res = await fetch(url, { signal: ctrl.signal, headers, redirect: "follow" });
         }
         const raw = await res.text();
-        let data = {}; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 800) }; }
+        let data = {}; try { data = JSON.parse(raw); } catch {  data = { raw: raw.slice(0, 800) }; }
         return { ok: res.ok, data, source: url, status: res.status };
       } finally {
         clearTimeout(t);
@@ -317,6 +346,9 @@ function pickBetter(a, b){
     else { winner = a; other = b; }
   }
 
+  if (!winner.event_ref && other.event_ref) winner.event_ref = other.event_ref;
+
+
   // --- ALWAYS union showtimes ---
   if (winner.Time && other.Time) winner.Time = mergeTimes(winner.Time, other.Time);
   else if (!winner.Time && other.Time) winner.Time = other.Time;
@@ -329,7 +361,15 @@ function pickBetter(a, b){
   if (!winner.Venue && other.Venue) winner.Venue = other.Venue;
 
   // Prefer higher-priority Source (Zoom > Official)
-  winner.Source = chooseSource(winner.Source, other.Source);
+  const preferred = chooseSource(winner.Source, other.Source);
+  if (preferred !== winner.Source) {
+  winner.Source = preferred;
+
+  // keep Source/Link/event_ref aligned
+  if (other.Link) winner.Link = other.Link;
+  if (other._fp_url) winner._fp_url = other._fp_url;
+  if (other.event_ref) winner.event_ref = other.event_ref;
+}
 
   return winner;
 }

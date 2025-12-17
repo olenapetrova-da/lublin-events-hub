@@ -28,6 +28,36 @@
  */
 
 
+/**
+ * Lublin_Zoom_Worker_forHub.js — 2025-11-05 (addendum #2)
+ * - New: Enrichment budget saver — skip detail-enrichment for ongoing/no-time ranges
+ *         (Time == "" AND _EndDate != Date). These are typically exhibitions; list data is sufficient.
+ * - Keep: include_in_progress support for /w-trakcie is unchanged.  :contentReference[oaicite:1]{index=1}
+ */
+
+/**
+ * Lublin_Zoom_Worker_forHub.js
+ * CHANGELOG — 2025-11-05 (addendum)
+ * - New: Option to include ongoing multi-day events from https://zoom.lublin.pl/w-trakcie/ .
+ *        Controlled by ?include_in_progress=1|0 (default: 1). Page count via ?inprog_pages=1..3 (default: 1).
+ * - Behavior: These cards are typically date ranges without times. We reuse the same list parser and
+ *             downstream window filtering (rangesOverlap) so only ranges intersecting the requested window are kept.
+ * - Risk control: One extra list fetch by default (page 1 of /w-trakcie/). Uses the same subrequest budget.
+ */
+
+/**
+ * Lublin_Zoom_Worker_forHub.js
+ * CHANGELOG — 2025-11-05
+ * - Fix: List parser reads dates/times strictly from `.event-card__dates` (no legacy data-* attrs).
+ * - Fix: Supports two-<span> “no-time” ranges like `<span>YYYY-MM-DD — </span><span>YYYY-MM-DD</span>`;
+ *        emits rows with Time="" and _EndDate set to the second date.
+ * - Fix: Normalizes all times to HH:MM via padTime(); detail enrichment also pads times.
+ * - Fix: Detail enrichment reads only the correct blocks: single-event__dates/place/categories/tickets.
+ * - Fix: Payment detection prioritizes tickets block; falls back to page-level heuristic.
+ * - Keep: Grouping showtimes when `group_times=1`. ?sheet=1 returns rows (8 cols, no Image URL).
+ */
+
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -280,6 +310,7 @@ function parseZoomList(raw) {
       Venue: venue || "",
       Category: category || "",
       Link: href,
+      event_ref: zoomEventRef(href),   // -- added to Official adapter to address issues with multiple pages for the same event. Here is for consistant use in n8n 
       "Payment for Entry": detectPaymentList(block), // list-only: "No" or ""
       Source: "zoom.lublin.pl",
       _EndDate: End || Date || "",  // ADR-0009: ensure present; default to Date
@@ -532,3 +563,9 @@ function json(obj,status=200){
   });
 }
 function jserr(msg,status=400){ return json({ error: String(msg) }, status); }
+
+function zoomEventRef(href){
+  const p = urlPath(href).toLowerCase();          // "/wydarzenie/<slug>"
+  const seg = p.split("/").filter(Boolean).pop() || "";
+  return seg || p;
+}
