@@ -37,18 +37,15 @@ If there is any conflict, these documents take precedence:
   - transforming Hub events into DB records,
   - enforcing the 7-day rolling horizon in `showtimes`;
 - producing a small per-run summary that can be inspected in n8n and (optionally) stored in DB.
+- WF-INGEST treats “same logical event, multiple URLs” cases as one logical event by relying on Hub `event_ref`:
+  - it computes `event_id = sha1(source + "|" + event_ref)` and upserts `events` by `event_id`.
+  - DB-level dedupe of calendar instances is done at the `showtimes` level (see `UNIQUE NULLS NOT DISTINCT (event_id, date, time, venue)`).
 
 It does not:
 
 - crawl event sources directly,
 - perform taxonomy/category canonicalisation,
 - serve data to consumers (that will be covered by the Query/API layer in later stages).
-- WF-INGEST does **not** try to deduplicate “same logical event, multiple URLs” cases
-  (e.g. `official` exhibitions). It assumes that:
-  - Hub already handles per-source dedupe where feasible, and
-  - DB-level dedupe is done at the `showtimes` level (via `UNIQUE (event_id, date, time, venue)`),
-    not by merging `events` rows.
-
 
 ### 1.2 High-level phases
 
@@ -136,9 +133,9 @@ The detailed field-by-field mapping is defined in `LEHv2_Hub_to_DB_Mapping_S1.md
 Important points to respect:
 
 - `event_id`:
-  - must be computed using the same recipe as LEHv1 (Google Sheets / Apps Script),
   - must be deterministic and stable across days,
-  - must result in the same ID for the same underlying event in both LEHv1 and LEHv2.
+  - must merge “same logical event, multiple URLs” pages within the same source,
+  - is computed from Hub `event_ref` and mapped `source` (example: `sha1(source + "|" + event_ref)`).
 - `source`:
   - must contain the short source code defined in `public.sources` (for example `zoom`, `official`),
   - must follow the mapping from Hub `Source` values to these codes as defined in the mapping doc.
@@ -148,11 +145,11 @@ Important points to respect:
 Upsert semantics:
 
 - Insert/update into `public.events` using the constraints from `schema_stage1.sql`:
-  - primary key on `event_id`,
-  - unique constraint on `(source, url)`.
-- On conflict:
+  - upsert by primary key on `event_id` (event_id comes from `sha1(source + "|" + event_ref)`),
+  - `UNIQUE (source, url)` is a guardrail (URL is user-facing, not the logical identity key).
+- On conflict on `event_id`:
   - do not create duplicates,
-  - either update mutable fields (like `title`, `category_raw`) or leave the existing row as is, according to the chosen implementation.
+  - update mutable fields (like `title`, `category_raw`, `url`) according to the chosen implementation.
 
 ### 3.2 Mapping to `public.showtimes`
 
@@ -179,7 +176,7 @@ Key points (all details in mapping doc):
 `WF-INGEST` must respect the constraints on `public.showtimes` from `schema_stage1.sql`, in particular:
 
 - foreign key to `events(event_id)`,  
-- uniqueness on `(event_id, date, time, venue)`.
+- uniqueness on `UNIQUE NULLS NOT DISTINCT (event_id, date, time, venue)`.
 
 On conflict on `(event_id, date, time, venue)`:
 

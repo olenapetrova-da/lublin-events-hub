@@ -35,14 +35,11 @@ Tables map to these concepts as follows:
 
 **Important nuance (Stage 1):**
 
-- For most sources (e.g. `zoom`) one logical event → one `events` row.
-- For some sources (e.g. `official`), the same logical event may have multiple URLs 
-  (for different days). In Stage 1 we **do not attempt to merge those URLs** in DB:
-  - `events` keeps one row per `(source, url)`,
-  - all calendar instances are still represented correctly in `showtimes`.
-- Analytics and future enrichment that need “true logical event” grouping can derive it
-  by combining `title`, `source`, and possibly other normalized attributes outside this
-  minimal Stage 1 schema.
+- Some sources may publish multiple URLs for the same logical event (e.g. one page per day).
+- Stage 1 merges those into a single logical event by relying on Hub `event_ref`:
+  - WF-INGEST computes `event_id = sha1(source + "|" + event_ref)` and upserts `events` by `event_id`.
+  - Distinct occurrences are represented as distinct rows in `showtimes` (date/time/venue).
+- `events.url` stores a full URL for user click-through and may be overwritten by the latest/“best” URL.
 
 
 ## Data description
@@ -110,7 +107,7 @@ Represents the individual showings / dates for an event.
 
 - `PRIMARY KEY (showtime_id)`
 - `FOREIGN KEY (event_id) REFERENCES events(event_id)`
-- `UNIQUE (event_id, date, time, venue)` – prevents inserting the same showtime twice.
+- `UNIQUE NULLS NOT DISTINCT (event_id, date, time, venue)`
 
 **Indexes**
 
@@ -220,14 +217,16 @@ One row per chat/user.
 ## Identifier strategy
 
 - **events.event_id**
-  - Stable, text ID computed by the ingestion workflow.
-  - Same semantics as the LEHv1 `event_id`, so IDs are preserved across architecture changes.
+  - `events.event_id` is the stable primary identifier.
+  - `event_id` is derived from `(source, event_ref)` where `event_ref` is provided by the Hub and is stable across “one URL per day” pages for the same logical event.
+  - `events.url` stores a full URL for user click-through. If multiple URLs exist for the same logical event, the stored `url` can be overwritten by the latest/“best” one.
+  - `UNIQUE (source, url)` remains as a guardrail, but it is not the logical identity.
   - Primary key for joining with `showtimes`.
 
 - **Source event identity**
-  - Source-local identity is effectively **`(source, url)`**.
-  - Enforced by `UNIQUE (source, url)` on `events`.
-  - No separate `source_event_id` column is used in Stage 1.
+  - Source-local logical identity is **`(source, event_ref)`** (Hub field).
+  - `event_id` is derived deterministically from `(source, event_ref)` (example: `sha1(source + "|" + event_ref)`).
+  - `UNIQUE (source, url)` remains a guardrail against exact duplicate pages, but URL is not the logical identity.
 
 - **showtimes.showtime_id**
   - Surrogate bigint identity; never used in external contracts.

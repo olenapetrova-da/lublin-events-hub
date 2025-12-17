@@ -59,6 +59,7 @@ The Hub response has a top-level structure similar to:
       "Payment for Entry": "No",
       "Source": "zoom.lublin.pl",
       "_EndDate": "2025-12-10",
+      "event_ref": "kino-bajka-..."
 
       "_via": ["zoom.lublin.pl"],
       "_fp_url": "/wydarzenie/...",
@@ -82,6 +83,7 @@ For Stage 1 DB mapping we only use these **event-level fields**:
 - `Link`
 - `"Payment for Entry"`
 - `Source`
+- `event_ref`
 
 Internal helper fields like `_via`, `_fp_url`, `_norm_title`, `_slug_tokens`, `Sources`, and envelope fields like `per_source`, `dedupe_stats` are ignored.
 
@@ -110,18 +112,21 @@ In `public.events`:
 
 For each Hub event, the ingestion workflow computes:
 
-- `events.event_id` – stable text ID, same semantics as LEHv1 (`event_id` in the Google Sheets / Apps Script version).
+- `events.event_id` – stable text ID (same concept as LEHv1: deterministic ID for a logical event).
 - `events` has:
   - `PRIMARY KEY (event_id)`
-  - `UNIQUE (source, url)`
+  - `UNIQUE (source, url)` (guardrail only)
 
 This means:
 
 - `event_id` is the **primary key** used to join with `showtimes`.
-- `(source, url)` is the **source-local identity**:
-  - If the same source tries to insert an event with the same URL twice, Postgres will reject the duplicate.
+- The **source-local logical identity** is `(source, event_ref)` (not `(source, url)`).
+  - Some sources may expose different URLs for the same logical event (e.g. one page per day).
+- `WF-INGEST` derives `event_id` from `(source, event_ref)` (example: `sha1(source + "|" + event_ref)`).
+- `events.url` stores a full URL for user click-through and may change between runs; it is not a logical identity key.
 
-No separate `source_event_id` column is used in Stage 1.
+Stage 1 does not store `event_ref` in the DB; it is consumed to compute `event_id`.
+
 
 ### 2.3 Logical events vs calendar instances (Stage 1 view)
 
@@ -132,15 +137,13 @@ No separate `source_event_id` column is used in Stage 1.
   - `events` approximates “logical events”,
   - `showtimes` holds all concrete calendar instances.
 
-For sources where one logical event has multiple URLs (e.g. `official` exhibitions with
-one page per day), Stage 1 keeps the mapping:
+For sources where one logical event has multiple URLs (e.g. one page per day), Stage 1 merges
+those into a single logical event by relying on Hub `event_ref`:
 
-- one Hub event (page URL) → one `events` row,
-- showtimes for all relevant dates are materialised in `showtimes`.
-
-We intentionally do **not** merge multiple `official` URLs into a single event_id in 
-Stage 1. Any higher-level deduplication by “logical event” can be done later in analytics
-or a separate enrichment workflow.
+- Hub emits the same `event_ref` for all URLs belonging to the same logical event.
+- WF-INGEST computes `event_id = sha1(source + "|" + event_ref)` and upserts `events` by `event_id`.
+- Distinct occurrences are represented as distinct rows in `showtimes` (date/time/venue).
+- `events.url` keeps a full URL for user click-through and may be overwritten by the latest/“best” URL.
 
 
 ---
@@ -201,7 +204,8 @@ The DB wants **one row per `(event_id, date, time, venue)`** in `public.showtime
 - `_end_date date NOT NULL`
 - `venue text NULL`
 - `payment text NOT NULL DEFAULT 'unknown'`
-- `UNIQUE (event_id, date, time, venue)`
+- `UNIQUE NULLS NOT DISTINCT (event_id, date, time, venue)` – prevents inserting the same showtime twice even when `time` and/or `venue` are `NULL`.
+
 
 #### 3.2.1 Common transforms
 
