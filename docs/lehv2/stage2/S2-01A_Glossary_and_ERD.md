@@ -62,6 +62,18 @@ Completeness score: count of filled fields among:
 
 ## Canonical data model (Option 2 — clean refactor)
 
+### `sources`
+Lookup table for data sources.
+- `source_id` (PK, text) — e.g. `official`, `zoom`
+- `name` (text)
+
+Relations:
+- `sources` 1:N `event_listings`
+- `sources` 1:N `event_listing_categories`
+- `sources` 1:N `tag_alias`
+- `sources` 1:N `tag_unmapped`
+- `sources` 1:N `events` (via `events.primary_source`)
+
 ### `events` (canonical, used by Telegram)
 Represents the canonical “occurrence” (1 row = 1 Telegram line).
 
