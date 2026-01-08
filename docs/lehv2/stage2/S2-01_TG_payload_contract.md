@@ -64,7 +64,7 @@ Nav flags:
 | Wszystkie | `v2|set|theme=all` |
 | Teatr | `v2|set|theme=teatr` |
 | Film | `v2|set|theme=film` |
-| Muzyka | `v2|set|theme=muzyka` |
+| Koncert | `v2|set|theme=koncert` |
 | Spotkanie | `v2|set|theme=spotkanie` |
 | Warsztat | `v2|set|theme=warsztat` |
 | Wystawa | `v2|set|theme=wystawa` |
