@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="29.2.9" pages="2">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="29.3.0" pages="2">
   <diagram id="c534a196-0ca2-4c3b-96de-4490f9fb022f" name="Telegram-states">
-    <mxGraphModel dx="1792" dy="1855" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1024" dy="1113" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -205,7 +205,7 @@
             <mxPoint x="1000" y="580" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="s_main" parent="1" style="rounded=1;whiteSpace=wrap;html=1;shadow=0;strokeWidth=1;fillColor=#E8F5E9;strokeColor=#2E7D32;fontSize=12;" value="S1: Menu główne / Filtry&lt;br&gt;&lt;br&gt;Aktualne filtry:&lt;br&gt;- Okres: &lt;br&gt;- Kategoria:  (domyślnie: Wszystkie)&lt;br&gt;- Płatność:  (domyślnie: Wszystkie)&lt;br&gt;&lt;br&gt;Guidance:&lt;br&gt;- Najpierw wybierz Okres.&lt;br&gt;- Potem możesz zmienić Kategorię / Płatność.&lt;br&gt;&lt;br&gt;Przyciski (inline callback_data, prefix v2):&lt;br&gt;Wybór okresu&amp;nbsp;&lt;br&gt;Wybór kategorii&amp;nbsp;&lt;br&gt;Wybór płatności&amp;nbsp;&lt;br&gt;Pokaż wyniki (widoczne tylko gdy Okres ustawiony)&lt;br&gt;Zacznij od nowa&amp;nbsp;" vertex="1">
+        <mxCell id="s_main" parent="1" style="rounded=1;whiteSpace=wrap;html=1;shadow=0;strokeWidth=1;fillColor=#E8F5E9;strokeColor=#2E7D32;fontSize=12;" value="S1: Menu główne / Filtry&lt;br&gt;&lt;br&gt;Aktualne filtry:&lt;br&gt;- Okres: &lt;br&gt;- Kategoria:  (domyślnie: Wszystkie)&lt;br&gt;- Płatność:  (domyślnie: Wszystkie)&lt;div&gt;- Wyklucz Dlugie: (domyślnie: OFF)&lt;br&gt;&lt;br&gt;Guidance:&lt;br&gt;- Najpierw wybierz Okres.&lt;br&gt;- Potem możesz zmienić Kategorię / Płatność.&lt;br&gt;&lt;br&gt;Przyciski (inline callback_data, prefix v2):&lt;br&gt;Wybór okresu&amp;nbsp;&lt;br&gt;Wybór kategorii&amp;nbsp;&lt;br&gt;Wybór płatności&amp;nbsp;&lt;br&gt;Pokaż wyniki (widoczne tylko gdy Okres ustawiony)&lt;br&gt;Zacznij od nowa&amp;nbsp;&lt;/div&gt;" vertex="1">
           <mxGeometry height="300" width="270" x="720" y="300" as="geometry" />
         </mxCell>
         <mxCell id="hDj0MnjjjcGph6jZCk_4-4" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=16;" value="Callback payloads: see &lt;code data-start=&quot;1869&quot; data-end=&quot;1899&quot;&gt;S2-01_TG_payload_contract.md&lt;/code&gt; (single source of truth)." vertex="1">
@@ -215,7 +215,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="Aq7Z0vVD6Lah6ah0M1gp" name="ERD">
-    <mxGraphModel dx="2327" dy="1709" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1385" dy="1036" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -247,7 +247,7 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="_BjZGiEZvvxMsjAsWrQF-1" parent="1" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="events" vertex="1">
-          <mxGeometry height="420" width="220" x="-370" y="-160" as="geometry" />
+          <mxGeometry height="450" width="220" x="-370" y="-160" as="geometry" />
         </mxCell>
         <mxCell id="_BjZGiEZvvxMsjAsWrQF-2" parent="_BjZGiEZvvxMsjAsWrQF-1" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;top=0;left=0;right=0;bottom=1;" value="" vertex="1">
           <mxGeometry height="30" width="220" y="30" as="geometry" />
@@ -401,6 +401,19 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="_BjZGiEZvvxMsjAsWrQF-56" parent="_BjZGiEZvvxMsjAsWrQF-54" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;overflow=hidden;whiteSpace=wrap;html=1;" value="&lt;span style=&quot;text-align: center;&quot;&gt;updated_at (timestamptz)&lt;/span&gt;" vertex="1">
+          <mxGeometry height="30" width="190" x="30" as="geometry">
+            <mxRectangle height="30" width="190" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="JIdtOpnZnzVMRYQ1XDaT-1" parent="_BjZGiEZvvxMsjAsWrQF-1" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;top=0;left=0;right=0;bottom=0;" value="" vertex="1">
+          <mxGeometry height="30" width="220" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="JIdtOpnZnzVMRYQ1XDaT-2" parent="JIdtOpnZnzVMRYQ1XDaT-1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;editable=1;overflow=hidden;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="30" width="30" as="geometry">
+            <mxRectangle height="30" width="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="JIdtOpnZnzVMRYQ1XDaT-3" parent="JIdtOpnZnzVMRYQ1XDaT-1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=6;overflow=hidden;whiteSpace=wrap;html=1;" value="&lt;span style=&quot;text-align: center;&quot;&gt;updated_at (timestamptz)&lt;/span&gt;" vertex="1">
           <mxGeometry height="30" width="190" x="30" as="geometry">
             <mxRectangle height="30" width="190" as="alternateBounds" />
           </mxGeometry>

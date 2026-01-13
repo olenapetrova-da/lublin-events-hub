@@ -2,6 +2,8 @@
 
 Single source of truth for **inline keyboard** `callback_data` payloads used by the Telegram bot MVP (Stage 2).
 
+---
+
 ## Format
 
 We use **inline keyboards** (callback queries). Each button has:
@@ -10,43 +12,54 @@ We use **inline keyboards** (callback queries). Each button has:
 
 Payload scheme:
 
-- `v2|<action>|<key>=<value>`  (set a value)
-- `v2|<action>|<flag>`         (navigation / simple commands)
+- `v2|set|<key>=<value>`  (set a value)
+- `v2|menu|<name>`        (open a menu screen)
+- `v2|run|search`         (execute search)
+- `v2|nav|<flag>`         (navigation / simple commands)
 
-## Conventions
+---
 
-Keys and values (stable identifiers):
+## Keys and allowed values
 
 - `period`: `today | tomorrow | weekend | week`
 - `theme`: `all | teatr | film | koncert | spotkanie | warsztat | wystawa | wycieczka | sport | inne`
 - `pay`: `all | free | paid | unknown`
-
-Actions:
-
-- `menu` — open a submenu (no state change beyond `step`)
-- `set`  — set a filter value + reset `offset=0` + return to main menu
-- `run`  — execute a search (requires `period` set)
-- `nav`  — navigation helpers
-
-Nav flags:
-
-- `back`  — return to **main menu** (keep filters; reset `offset=0`)
-- `reset` — reset all filters + `offset=0` and go to welcome/main menu
-- `more`  — next page (`offset += 10`)
+- `lr`: `0 | 1`
+  - `0` (default): exclude long‑running events (`range_days >= 21`)
+  - `1`: include long‑running events
 
 ---
 
-## Main menu / Filter hub
+## Navigation flags
+
+| Button label (PL) | callback_data |
+|---|---|
+| Pokaż więcej *(only if has_more)* | `v2|nav|more` |
+| Wstecz | `v2|nav|back` |
+| Zacznij od nowa | `v2|nav|reset` |
+
+---
+
+## Main menu buttons
 
 | Button label (PL) | callback_data |
 |---|---|
 | Wybór okresu | `v2|menu|period` |
 | Wybór kategorii | `v2|menu|theme` |
 | Wybór płatności | `v2|menu|pay` |
-| Pokaż wyniki *(only if Okres selected)* | `v2|run|search` |
+| Pokaż wyniki | `v2|run|search` |
 | Zacznij od nowa | `v2|nav|reset` |
 
-## Period menu (Okres)
+### Long‑running toggle (shown as one button depending on current state)
+
+| Button label (PL) | callback_data |
+|---|---|
+| Pokaż długoterminowe *(when lr=0)* | `v2|set|lr=1` |
+| Ukryj długoterminowe *(when lr=1)* | `v2|set|lr=0` |
+
+---
+
+## Period menu
 
 | Button label (PL) | callback_data |
 |---|---|
@@ -55,9 +68,10 @@ Nav flags:
 | Weekend | `v2|set|period=weekend` |
 | Tydzień | `v2|set|period=week` |
 | Wstecz | `v2|nav|back` |
-| Zacznij od nowa | `v2|nav|reset` |
 
-## Theme menu (Kategoria)
+---
+
+## Theme menu
 
 | Button label (PL) | callback_data |
 |---|---|
@@ -72,9 +86,10 @@ Nav flags:
 | Sport | `v2|set|theme=sport` |
 | Inne | `v2|set|theme=inne` |
 | Wstecz | `v2|nav|back` |
-| Zacznij od nowa | `v2|nav|reset` |
 
-## Payment menu (Płatność)
+---
+
+## Pay menu
 
 | Button label (PL) | callback_data |
 |---|---|
@@ -83,15 +98,18 @@ Nav flags:
 | Płatne | `v2|set|pay=paid` |
 | Nieznane | `v2|set|pay=unknown` |
 | Wstecz | `v2|nav|back` |
-| Zacznij od nowa | `v2|nav|reset` |
 
-## Results screen (Wyniki)
+---
+
+## Results screen keyboard
 
 | Button label (PL) | callback_data |
 |---|---|
 | Pokaż więcej *(only if has_more)* | `v2|nav|more` |
 | Wstecz | `v2|nav|back` |
 | Zacznij od nowa | `v2|nav|reset` |
+
+---
 
 ## Zero results screen (Brak wyników)
 
