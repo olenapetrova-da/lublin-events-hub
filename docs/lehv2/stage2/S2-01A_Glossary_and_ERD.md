@@ -57,6 +57,20 @@ Telegram state flag:
 - `lr=0` (default): **exclude** long‑running events from results
 - `lr=1`: include long‑running events
 
+### User session state (Telegram)
+
+Per-chat session state used by the bot to remember:
+
+- current UX step (`step`)
+- selected filters (`period`, `theme`, `pay`, `lr`)
+- pagination (`"offset"`)
+- a stable anchor for relative windows (`anchor_date`)
+
+This state is stored in the DB table `user_state` and is enforced by a trigger:
+
+- filter change resets `"offset"` to 0
+- period change freezes `anchor_date` (Warsaw date) to prevent midnight drift
+
 ---
 
 ## Data model (tables, keys, relations)
@@ -157,6 +171,37 @@ Uniqueness (NULL-safe):
 
 ---
 
+### `user_state` (Telegram session state)
+
+Stores one row per chat to support the button-only Telegram UX and pagination.
+
+Key columns:
+
+- `user_state_id` (PK, bigint)
+- `chat_id` (text, NOT NULL, UNIQUE)
+- `step` (text, NOT NULL) — `main|period|theme|pay`
+- `period` (text, nullable) — `today|tomorrow|weekend|week`
+- `theme` (text, NOT NULL) — contract code, default `all`
+- `pay` (text, NOT NULL) — contract code, default `all`
+- `lr` (smallint, NOT NULL) — `0|1`, default `0`
+- `"offset"` (int, NOT NULL) — pagination offset, default `0`
+- `anchor_date` (date, nullable) — reference date for relative periods
+- `updated_at` (timestamptz, NOT NULL)
+
+Constraints:
+
+- `CHECK (period IS NULL OR anchor_date IS NOT NULL)` (stable relative windows)
+- allowed-code checks for step/period/theme/pay/lr and `"offset" >= 0`
+
+Relationships:
+
+- none (standalone state table keyed by chat_id)
+
+Future extension:
+
+- optional message editing fields: `last_bot_message_id`, `last_bot_message_at`
+
+---
 ### `tags`
 Canonical tags (for now only `kind='theme'` is needed).
 

@@ -15,7 +15,7 @@ while preserving **traceability back to sources** via per-source listings and ra
 - `s1_showtimes` — one row per Hub showtime/date range, minimal normalization.
 - `ingest_log` — one row per WF-INGEST run (diagnostics).
 - `sources` — lookup table of sources (metadata + enable flag).
-- `user_state` — Telegram user state (still to be finalized in S2-02).
+- `user_state` — Telegram user session state (WF-BOT-TG; filters + pagination per chat).
 
 ### Canonical (queried by the bot)
 - `events` — one row per **canonical event occurrence** (one Telegram output line).
@@ -136,6 +136,55 @@ One row per WF-INGEST run (success or failure) for operational traceability.
 
 **Constraints / indexes**
 - `PRIMARY KEY (ingest_log_id)`
+
+---
+
+### user_state
+
+Telegram bot session state stored per chat.
+
+Written by WF-BOT-TG; read by bot logic and S2-03 queries.
+
+| Field | Key | relationship | Data type | nulls are allowed | default |
+| --- | --- | --- | --- | --- | --- |
+| **user_state_id** | PK |  | bigint | no | identity |
+| chat_id | UQ |  | text | no |  |
+| step |  |  | text | no | 'main' |
+| period |  |  | text | yes |  |
+| theme |  |  | text | no | 'all' |
+| pay |  |  | text | no | 'all' |
+| lr |  |  | smallint | no | 0 |
+| offset |  |  | integer | no | 0 |
+| anchor_date |  |  | date | yes |  |
+| updated_at |  |  | timestamptz | no | now() |
+
+**Constraints / indexes**
+
+- `PRIMARY KEY (user_state_id)`
+- `UNIQUE (chat_id)`
+- `CHECK (step IN ('main','period','theme','pay'))`
+- `CHECK (period IS NULL OR period IN ('today','tomorrow','weekend','week'))`
+- `CHECK (theme IN ('all','teatr','film','koncert','spotkanie','warsztat','wystawa','wycieczka','sport','inne'))`
+- `CHECK (pay IN ('all','free','paid','unknown'))`
+- `CHECK (lr IN (0,1))`
+- `CHECK ("offset" >= 0)`
+- `CHECK (period IS NULL OR anchor_date IS NOT NULL)` (stable relative windows)
+
+**Semantics**
+
+- `chat_id` is stored as **text** for MVP compatibility (n8n payloads are strings). Uniqueness is enforced by `UNIQUE(chat_id)`.
+- `period` may be NULL until the user selects it.
+- `anchor_date` freezes the reference date for relative periods to prevent result drift after midnight.
+- `offset` is a reserved SQL keyword; in SQL always reference it as `"offset"`.
+
+### Design notes
+
+- **Stable relative windows:** S2-03 queries MUST compute `today/tomorrow/weekend/week` relative to `anchor_date` (Warsaw date), not `now()`.
+- **DB-enforced invariants (trigger `tg_user_state_invariants`)**
+    - any change to filters (`period`, `theme`, `pay`, `lr`) resets `"offset"` to 0
+    - any update refreshes `updated_at`
+    - when `period` changes: set `anchor_date` to Warsaw “today”; if `period` is cleared → clear `anchor_date`
+- **Message editing deferred:** we do not store Telegram `message_id` fields in MVP. If needed later, add optional columns like `last_bot_message_id` / `last_bot_message_at`.
 
 ---
 
@@ -314,6 +363,7 @@ Captures unknown raw labels for later review (including the “missing category�
 **Constraints**
 - `PRIMARY KEY (source, raw_value)`
 
+
 ---
 
 ## Taxonomy application rules (how tags are produced)
@@ -358,11 +408,12 @@ This allows you to:
   - expected to be pruned automatically outside the active window (e.g. today..today+N) to keep the DB small and bot queries fast.
   - long-running events are not dropped; they are flagged with `is_long_running=true` and filtered by user choice.
 
----
 
+
+---
 ## Open points / future extensions (outside S2-01A)
 
-- Final `user_state` design (S2-02), including whether to store long-running filter flag (`lr`) persistently.
+- Optional (future): store Telegram message ids for message editing (last_bot_message_id, last_bot_message_at).
 - Search/query patterns + pagination (S2-03).
 - Enrichment (venue normalization, geocoding, organizer, etc.).
 - Multi-tag types beyond `kind='theme'` (e.g. audience, language, format).
