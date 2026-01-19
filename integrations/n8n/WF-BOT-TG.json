@@ -1,0 +1,1048 @@
+{
+  "name": "WF-BOT-TG",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query",
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6f003427-3005-44fd-b0a5-7142004d6d07",
+      "name": "Lublin Events v2 TG Trigger",
+      "webhookId": "1e7d8713-8d20-4ad5-aca1-87a26bbbd9f0",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $json;\nconst cb = u.callback_query;\nconst msg = u.message;\n\nconst chatId = cb?.message?.chat?.id ?? msg?.chat?.id ?? null;\nconst chat_id_text = chatId === null ? null : String(chatId);\nconst chat_id_num = chatId === null ? null : Number(chatId);\n\nconst action_raw = String((cb?.data ?? msg?.text ?? '')).trim();\nconst update_kind = cb ? 'callback' : 'message';\nconst callback_query_id = cb?.id ?? null;\n\nfunction parseAction(s) {\n  if (!s) return { action_type: 'invalid' };\n\n  // accept: /start, /start anything, /start@botname\n  if (/^\\/start(\\s|$|@)/.test(s)) return { action_type: 'start' };\n\n  if (!s.startsWith('v2|')) return { action_type: 'invalid' };\n  const parts = s.split('|');\n  if (parts.length < 3) return { action_type: 'invalid' };\n\n  const kind = parts[1];\n  const arg = parts.slice(2).join('|');\n\n  if (kind === 'menu') return { action_type: 'menu', menu_name: arg };\n  if (kind === 'nav')  return { action_type: 'nav',  nav_flag: arg };\n\n  if (kind === 'set') {\n    const kv = parts[2] ?? '';\n    const [key, value] = kv.split('=');\n    if (!key || value === undefined) return { action_type: 'invalid' };\n\n    if (key === 'period' && ['today','tomorrow','weekend','week'].includes(value)) {\n      return { action_type: 'set', set_key: key, set_value: value };\n    }\n    return { action_type: 'invalid' };\n  }\n\n  return { action_type: 'invalid' };\n}\n\nconst parsed = parseAction(action_raw);\n\nreturn [{\n  json: {\n    chat_id_text,\n    chat_id_num,\n    action_raw,\n    update_kind,\n    callback_query_id,\n    ...parsed,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "0a674c91-81c5-4da2-8d5f-d24f78fdfd6f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "04ce0b15-5119-4429-9169-779d9c7c351e",
+              "leftValue": "={{$json.update_kind}}",
+              "rightValue": "callback",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "d81dd6ae-3d68-42ca-b41a-95f5a0f009f2",
+      "name": "IF callback?"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.action_type}}",
+                    "rightValue": "start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "17228c2d-2119-4dad-860e-7976c55ebcc6"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "A) /start (and used by reset)"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ad92368c-12a1-48e6-8b16-bff6028485e2",
+                    "leftValue": "={{ $json.action_type }}",
+                    "rightValue": "menu",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "B) v2|menu|period"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d0fc46da-eca9-4482-9521-e0710defca8e",
+                    "leftValue": "={{$json.action_type}}",
+                    "rightValue": "set",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "C) v2|set|period=<code>"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2045f4c2-ba36-4c6f-9253-f4d749af64a1",
+                    "leftValue": "={{$json.action_type}}",
+                    "rightValue": "nav",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "D) Navigation"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        96
+      ],
+      "id": "a0228c78-663f-4161-b560-d21effb9be48",
+      "name": "ROUTE by action_type"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.user_state (chat_id, step, period, theme, pay, lr, \"offset\", anchor_date)\nVALUES ($1, 'main', NULL, 'all', 'all', 0, 0, NULL)\nON CONFLICT (chat_id) DO UPDATE\nSET step        = EXCLUDED.step,\n    period      = EXCLUDED.period,\n    theme       = EXCLUDED.theme,\n    pay         = EXCLUDED.pay,\n    lr          = EXCLUDED.lr,\n    \"offset\"    = EXCLUDED.\"offset\",\n    anchor_date = EXCLUDED.anchor_date\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1184,
+        -208
+      ],
+      "id": "5beada4d-1f15-4f50-891f-584cd94ad37c",
+      "name": "DB Start/Reset (defaults)",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build text + keyboard using DB row.\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst ui_text =\n`Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        -208
+      ],
+      "id": "85e10802-70d7-467c-998c-7db5e8f9323f",
+      "name": "UI Main Menu (S2-05)"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.ui_text }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[0][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        -208
+      ],
+      "id": "425f4ddf-9cb8-4ce8-889a-cc570d64da04",
+      "name": "TG Send Main Menu",
+      "webhookId": "c7b1d6ac-98be-460e-b5ef-52902ead0c9b",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.menu_name}}",
+                    "rightValue": "period",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "7191e43b-e13d-496a-a6c3-8e5f670bd012"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "period"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1ecc5885-05d7-45c5-b85b-fffd7d1833cf",
+                    "leftValue": "={{$json.menu_name}}",
+                    "rightValue": "period",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "not period"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1328,
+        -16
+      ],
+      "id": "8781ea1a-363a-43d3-9ddd-d3bf57723783",
+      "name": "ROUTE menu_name"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #2 — v2|menu|period (step=period) */\n\nINSERT INTO public.user_state (chat_id, step)\nVALUES ($1, 'period')\nON CONFLICT (chat_id) DO UPDATE\nSET step = EXCLUDED.step\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1632,
+        -32
+      ],
+      "id": "8ddde139-39b5-4e06-b1c0-7b788e9b453f",
+      "name": "DB step=period",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node B2 — Code: UI Period Menu\nconst s = $json;\n\nconst ui_text = 'Wybierz okres:';\nconst reply_markup = {\n  inline_keyboard: [\n    [\n      { text: 'Dziś',    callback_data: 'v2|set|period=today' },\n      { text: 'Jutro',   callback_data: 'v2|set|period=tomorrow' },\n    ],\n    [\n      { text: 'Weekend', callback_data: 'v2|set|period=weekend' },\n      { text: 'Tydzień', callback_data: 'v2|set|period=week' },\n    ],\n    [\n      { text: 'Wstecz',  callback_data: 'v2|nav|back' },\n    ],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        -32
+      ],
+      "id": "11ed80a7-bd66-403f-be42-35539c6fb7b3",
+      "name": "UI Period Menu"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.ui_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[2][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[2][0].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        -32
+      ],
+      "id": "4ad8f125-5a65-4070-92ea-0c5f6ce80fac",
+      "name": "TG Send Period Menu",
+      "webhookId": "60c83039-a5df-4d1c-8fdd-88ce2ace2d2a",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #3 — v2|set|period=<code> (period + step=main)\nDon’t set anchor_date or \"offset\"; trigger does it.*/\n\nINSERT INTO public.user_state (chat_id, step, period)\nVALUES ($1, 'main', $2)\nON CONFLICT (chat_id) DO UPDATE\nSET step   = EXCLUDED.step,\n    period = EXCLUDED.period\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        176
+      ],
+      "id": "8e0de5b7-f01e-4a27-b085-7837817db382",
+      "name": "DB set period + step=main",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build text + keyboard using DB row.\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst ui_text =\n`Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        176
+      ],
+      "id": "45cca7c6-3828-4ee6-bd4f-1b9e29a7d2ec",
+      "name": "UI Main Menu (S2-05) Branch C"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.ui_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[0][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        176
+      ],
+      "id": "964d1f39-2c8e-4f5d-abe2-064a12fc531a",
+      "name": "TG Send Main Menu Branch C",
+      "webhookId": "da26d903-c9b6-4b14-9227-17f0ee26f765",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.nav_flag}}",
+                    "rightValue": "back",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "f2352215-a7ef-48d1-9d00-100bf8e37c2b"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "D-back"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ac666995-3a3e-4ea5-8a5b-f5011a5bc537",
+                    "leftValue": "={{$json.nav_flag}}",
+                    "rightValue": "reset",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "D-reset"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1328,
+        432
+      ],
+      "id": "79971eb1-b987-4f15-b9e6-e02d74a6ce75",
+      "name": "ROUTE nav_flag"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #5 — Read-only state for invalid fallback (always returns 1 row) */\n\nWITH s AS (\n  SELECT * FROM public.user_state WHERE chat_id = $1\n)\nSELECT\n  COALESCE((SELECT chat_id FROM s), $1)        AS chat_id,\n  COALESCE((SELECT step FROM s), 'main')       AS step,\n  (SELECT period FROM s)                       AS period,\n  COALESCE((SELECT theme FROM s), 'all')       AS theme,\n  COALESCE((SELECT pay FROM s), 'all')         AS pay,\n  COALESCE((SELECT lr FROM s), 0)              AS lr,\n  COALESCE((SELECT \"offset\" FROM s), 0)        AS \"offset\",\n  (SELECT anchor_date FROM s)                  AS anchor_date,\n  COALESCE((SELECT updated_at FROM s), now())  AS updated_at,\n  (SELECT user_state_id FROM s)                AS user_state_id;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1040,
+        1072
+      ],
+      "id": "4c95e0f1-dbff-4e53-942a-26f5508fbcb4",
+      "name": "DB read state (1-row fallback)",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.user_state (chat_id, step, \"offset\")\nVALUES ($1, 'main', 0)\nON CONFLICT (chat_id) DO UPDATE\nSET step     = EXCLUDED.step,\n    \"offset\" = EXCLUDED.\"offset\"\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        416
+      ],
+      "id": "ac48360f-f404-49e2-8030-7f05f218694f",
+      "name": "DB nav back (step=main, offset=0)",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #1 — /start and v2|nav|reset (defaults)*/\n\nINSERT INTO public.user_state (chat_id, step, period, theme, pay, lr, \"offset\", anchor_date)\nVALUES ($1, 'main', NULL, 'all', 'all', 0, 0, NULL)\nON CONFLICT (chat_id) DO UPDATE\nSET step        = EXCLUDED.step,\n    period      = EXCLUDED.period,\n    theme       = EXCLUDED.theme,\n    pay         = EXCLUDED.pay,\n    lr          = EXCLUDED.lr,\n    \"offset\"    = EXCLUDED.\"offset\",\n    anchor_date = EXCLUDED.anchor_date\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        656
+      ],
+      "id": "0789a295-6e24-404b-b823-dfb60becaf99",
+      "name": "DB Start/Reset (defaults)1",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "99f91896-dd7e-4ec7-9a82-8ebdd85a189a",
+              "name": "=ui_prefix",
+              "value": "=Nie rozumiem. Użyj przycisków poniżej.\\n\\n",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1632,
+        1056
+      ],
+      "id": "98540c17-b143-4b6a-981b-b3743185b1d1",
+      "name": "Set ui_prefix"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Same as A2, but prepend prefix:\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst prefix = s.ui_prefix ?? '';\n\nconst ui_text =\n`${prefix}Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1072
+      ],
+      "id": "cb9a45d5-848a-40d4-bcd1-43f8b9625c80",
+      "name": "UI Main Menu (with prefix)"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{$json.callback_query_id}}",
+        "additionalFields": {
+          "text": ""
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "11b9d096-d40e-473a-97a0-6aebb6d9ea53",
+      "name": "Answer Query a callback",
+      "webhookId": "e5b027de-efce-48e3-9032-ed2f6b9b328a",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Code in JavaScript').item.json.chat_id_text }}",
+        "text": "={{$json.ui_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[0][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2160,
+        1072
+      ],
+      "id": "3ac3a9fb-39d6-4aa9-8545-cac6099ba1e2",
+      "name": "TG Send Main Menu Branch E",
+      "webhookId": "25ec9e79-0a3e-48db-b918-bdbeec0db6db",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Lublin Events v2 TG Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "IF callback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF callback?": {
+      "main": [
+        [
+          {
+            "node": "ROUTE by action_type",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Answer Query a callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ROUTE by action_type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ROUTE by action_type": {
+      "main": [
+        [
+          {
+            "node": "DB Start/Reset (defaults)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ROUTE menu_name",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB set period + step=main",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ROUTE nav_flag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB read state (1-row fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Start/Reset (defaults)": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (S2-05)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Main Menu (S2-05)": {
+      "main": [
+        [
+          {
+            "node": "TG Send Main Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ROUTE menu_name": {
+      "main": [
+        [
+          {
+            "node": "DB step=period",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB read state (1-row fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB step=period": {
+      "main": [
+        [
+          {
+            "node": "UI Period Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Period Menu": {
+      "main": [
+        [
+          {
+            "node": "TG Send Period Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB set period + step=main": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (S2-05) Branch C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Main Menu (S2-05) Branch C": {
+      "main": [
+        [
+          {
+            "node": "TG Send Main Menu Branch C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ROUTE nav_flag": {
+      "main": [
+        [
+          {
+            "node": "DB nav back (step=main, offset=0)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB Start/Reset (defaults)1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB read state (1-row fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB read state (1-row fallback)": {
+      "main": [
+        [
+          {
+            "node": "Set ui_prefix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set ui_prefix": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Main Menu (with prefix)": {
+      "main": [
+        [
+          {
+            "node": "TG Send Main Menu Branch E",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback": {
+      "main": [
+        []
+      ]
+    },
+    "DB nav back (step=main, offset=0)": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (S2-05) Branch C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Start/Reset (defaults)1": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (S2-05)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "9953ec91-cfa8-4870-96ad-ac1c2f42af5a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e9831d5794dbfbbfe37e8a55340f672d15c48d6c06ed0066f5da51930bb91cf7"
+  },
+  "id": "pSchDHqTH2KQ0_FJ_q8Lg",
+  "tags": []
+}
