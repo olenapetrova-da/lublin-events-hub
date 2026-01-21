@@ -27,7 +27,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const u = $json;\nconst cb = u.callback_query;\nconst msg = u.message;\n\nconst chatId = cb?.message?.chat?.id ?? msg?.chat?.id ?? null;\nconst chat_id_text = chatId === null ? null : String(chatId);\nconst chat_id_num = chatId === null ? null : Number(chatId);\n\nconst action_raw = String((cb?.data ?? msg?.text ?? '')).trim();\nconst update_kind = cb ? 'callback' : 'message';\nconst callback_query_id = cb?.id ?? null;\n\nfunction parseAction(s) {\n  if (!s) return { action_type: 'invalid' };\n\n  // accept: /start, /start anything, /start@botname\n  if (/^\\/start(\\s|$|@)/.test(s)) return { action_type: 'start' };\n\n  if (!s.startsWith('v2|')) return { action_type: 'invalid' };\n  const parts = s.split('|');\n  if (parts.length < 3) return { action_type: 'invalid' };\n\n  const kind = parts[1];\n  const arg = parts.slice(2).join('|');\n\n  if (kind === 'menu') return { action_type: 'menu', menu_name: arg };\n  if (kind === 'nav')  return { action_type: 'nav',  nav_flag: arg };\n\n  if (kind === 'set') {\n    const kv = parts[2] ?? '';\n    const [key, value] = kv.split('=');\n    if (!key || value === undefined) return { action_type: 'invalid' };\n\n    if (key === 'period' && ['today','tomorrow','weekend','week'].includes(value)) {\n      return { action_type: 'set', set_key: key, set_value: value };\n    }\n    return { action_type: 'invalid' };\n  }\n\n  return { action_type: 'invalid' };\n}\n\nconst parsed = parseAction(action_raw);\n\nreturn [{\n  json: {\n    chat_id_text,\n    chat_id_num,\n    action_raw,\n    update_kind,\n    callback_query_id,\n    ...parsed,\n  }\n}];\n"
+        "jsCode": "const u = $json;\nconst cb = u.callback_query;\nconst msg = u.message;\n\nconst chatId = cb?.message?.chat?.id ?? msg?.chat?.id ?? null;\nconst chat_id_text = chatId === null ? null : String(chatId);\nconst chat_id_num = chatId === null ? null : Number(chatId);\n\nconst action_raw = String((cb?.data ?? msg?.text ?? '')).trim();\nconst update_kind = cb ? 'callback' : 'message';\nconst callback_query_id = cb?.id ?? null;\n\nfunction parseAction(s) {\n  if (!s) return { action_type: 'invalid' };\n\n  // accept: /start, /start anything, /start@botname\n  if (/^\\/start(\\s|$|@)/.test(s)) return { action_type: 'start' };\n\n  if (!s.startsWith('v2|')) return { action_type: 'invalid' };\n  const parts = s.split('|');\n  if (parts.length < 3) return { action_type: 'invalid' };\n\n  const kind = parts[1];\n  const arg = parts.slice(2).join('|');\n\n  if (kind === 'menu') return { action_type: 'menu', menu_name: arg };\n  if (kind === 'nav')  return { action_type: 'nav',  nav_flag: arg };\n  if (kind === 'run') {\n    if (arg === 'search') return { action_type: 'run', run_name: 'search' };\n    return { action_type: 'invalid' };\n  }\n\n  if (kind === 'set') {\n    const kv = parts[2] ?? '';\n    const [key, value] = kv.split('=');\n    if (!key || value === undefined) return { action_type: 'invalid' };\n\n    if (key === 'period' && ['today','tomorrow','weekend','week'].includes(value)) {\n      return { action_type: 'set', set_key: key, set_value: value };\n    }\n\n    if (key === 'theme' && ['all','teatr','film','koncert','spotkanie','warsztat','wystawa','wycieczka','sport','inne'].includes(value)) {\n      return { action_type: 'set', set_key: key, set_value: value };\n    }\n\n    if (key === 'pay' && ['all','free','paid','unknown'].includes(value)) {\n      return { action_type: 'set', set_key: key, set_value: value };\n    }\n\n    if (key === 'lr' && ['0','1'].includes(value)) {\n  return { action_type: 'set', set_key: key, set_value: value };\n}\n\n    return { action_type: 'invalid' };\n  }\n\n  return { action_type: 'invalid' };\n}\n\nconst parsed = parseAction(action_raw);\n\nreturn [{\n  json: {\n    chat_id_text,\n    chat_id_num,\n    action_raw,\n    update_kind,\n    callback_query_id,\n    ...parsed,\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -122,7 +122,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "B) v2|menu|period"
+              "outputKey": "B) v2|menu|"
             },
             {
               "conditions": {
@@ -147,7 +147,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "C) v2|set|period=<code>"
+              "outputKey": "C) v2|set|"
             },
             {
               "conditions": {
@@ -173,6 +173,31 @@
               },
               "renameOutput": true,
               "outputKey": "D) Navigation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b8f39bbc-0b2c-44d1-bdf7-183da898281b",
+                    "leftValue": "={{$json.action_type}}",
+                    "rightValue": "run",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "E) v2|run|"
             }
           ]
         },
@@ -201,8 +226,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1184,
-        -208
+        1616,
+        -480
       ],
       "id": "5beada4d-1f15-4f50-891f-584cd94ad37c",
       "name": "DB Start/Reset (defaults)",
@@ -215,13 +240,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build text + keyboard using DB row.\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst ui_text =\n`Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+        "jsCode": "// Build text + keyboard using DB row.\n\nconst s = $json;\n//const periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\n//const hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst ui_text =\n`Witaj! 👋\nTen bot pokazuje wydarzenia w Lublinie. \nWybierz okres (wymagane), a potem opcjonalnie kategorię i płatność. `.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n   [\n      { text: 'Wybór okresu', callback_data: 'v2|menu|period' }\n   ],\n   [\n      { text: 'Wybór kategorii', callback_data: 'v2|menu|theme' },\n      { text: 'Wybór płatności', callback_data: 'v2|menu|pay' }\n    ],\n    [\n      { \"text\": \"Pokaż długoterminowe\", \"callback_data\": \"v2|set|lr=1\" }\n      // OR when lr=1:\n      // { \"text\": \"Ukryj długoterminowe\", \"callback_data\": \"v2|set|lr=0\" }\n    ],\n/**\n  [\n      { \"text\": \"Pokaż wyniki\",     \"callback_data\": \"v2|run|search\" }\n      // include this row ONLY if period != null\n    ],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  */\n  ]\n\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1936,
-        -208
+        1952,
+        -448
       ],
       "id": "85e10802-70d7-467c-998c-7db5e8f9323f",
       "name": "UI Main Menu (S2-05)"
@@ -241,11 +266,35 @@
                     "additionalFields": {
                       "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
                     }
-                  },
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
                   {
                     "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
                     "additionalFields": {
                       "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][1].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][1].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[2][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[2][0].callback_data }}"
                     }
                   }
                 ]
@@ -260,8 +309,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2240,
-        -208
+        2640,
+        -336
       ],
       "id": "425f4ddf-9cb8-4ce8-889a-cc570d64da04",
       "name": "TG Send Main Menu",
@@ -311,30 +360,83 @@
                 },
                 "conditions": [
                   {
-                    "id": "1ecc5885-05d7-45c5-b85b-fffd7d1833cf",
+                    "id": "0bac48f2-95f0-4131-a9a5-6437bc9f4959",
                     "leftValue": "={{$json.menu_name}}",
-                    "rightValue": "period",
+                    "rightValue": "theme",
                     "operator": {
                       "type": "string",
-                      "operation": "notEquals"
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
                     }
                   }
                 ],
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "not period"
+              "outputKey": "theme"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "76e80c66-8d4c-4fa8-9491-6bca69b85df9",
+                    "leftValue": "={{$json.menu_name}}",
+                    "rightValue": "pay",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pay"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "37c34fe3-a278-4624-8bb0-04ca3e6060d3",
+                    "leftValue": "={{$json.menu_name}}",
+                    "rightValue": "lr",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "long-running"
             }
           ]
         },
         "looseTypeValidation": true,
-        "options": {}
+        "options": {
+          "fallbackOutput": "extra"
+        }
       },
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
         1328,
-        -16
+        -224
       ],
       "id": "8781ea1a-363a-43d3-9ddd-d3bf57723783",
       "name": "ROUTE menu_name"
@@ -350,8 +452,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1632,
-        -32
+        1616,
+        -272
       ],
       "id": "8ddde139-39b5-4e06-b1c0-7b788e9b453f",
       "name": "DB step=period",
@@ -370,7 +472,7 @@
       "typeVersion": 2,
       "position": [
         1952,
-        -32
+        -176
       ],
       "id": "11ed80a7-bd66-403f-be42-35539c6fb7b3",
       "name": "UI Period Menu"
@@ -439,93 +541,12 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2240,
-        -32
+        2256,
+        -128
       ],
       "id": "4ad8f125-5a65-4070-92ea-0c5f6ce80fac",
       "name": "TG Send Period Menu",
       "webhookId": "60c83039-a5df-4d1c-8fdd-88ce2ace2d2a",
-      "credentials": {
-        "telegramApi": {
-          "id": "4jHbcvBP2MW3MVKj",
-          "name": "telegram-lehv2-bot"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "/* SQL #3 — v2|set|period=<code> (period + step=main)\nDon’t set anchor_date or \"offset\"; trigger does it.*/\n\nINSERT INTO public.user_state (chat_id, step, period)\nVALUES ($1, 'main', $2)\nON CONFLICT (chat_id) DO UPDATE\nSET step   = EXCLUDED.step,\n    period = EXCLUDED.period\nRETURNING *;\n",
-        "options": {
-          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
-        }
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1648,
-        176
-      ],
-      "id": "8e0de5b7-f01e-4a27-b085-7837817db382",
-      "name": "DB set period + step=main",
-      "credentials": {
-        "postgres": {
-          "id": "yWlCCvDG4OzxvCkA",
-          "name": "supabase-lehv2"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Build text + keyboard using DB row.\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst ui_text =\n`Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1968,
-        176
-      ],
-      "id": "45cca7c6-3828-4ee6-bd4f-1b9e29a7d2ec",
-      "name": "UI Main Menu (S2-05) Branch C"
-    },
-    {
-      "parameters": {
-        "chatId": "={{$json.chat_id}}",
-        "text": "={{$json.ui_text}}",
-        "replyMarkup": "inlineKeyboard",
-        "inlineKeyboard": {
-          "rows": [
-            {
-              "row": {
-                "buttons": [
-                  {
-                    "text": "={{ $json.reply_markup.inline_keyboard[0][0].text }}",
-                    "additionalFields": {
-                      "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
-                    }
-                  },
-                  {
-                    "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
-                    "additionalFields": {
-                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
-                    }
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        "additionalFields": {}
-      },
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        2240,
-        176
-      ],
-      "id": "964d1f39-2c8e-4f5d-abe2-064a12fc531a",
-      "name": "TG Send Main Menu Branch C",
-      "webhookId": "da26d903-c9b6-4b14-9227-17f0ee26f765",
       "credentials": {
         "telegramApi": {
           "id": "4jHbcvBP2MW3MVKj",
@@ -596,8 +617,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1328,
-        432
+        1312,
+        896
       ],
       "id": "79971eb1-b987-4f15-b9e6-e02d74a6ce75",
       "name": "ROUTE nav_flag"
@@ -613,8 +634,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1040,
-        1072
+        1648,
+        1424
       ],
       "id": "4c95e0f1-dbff-4e53-942a-26f5508fbcb4",
       "name": "DB read state (1-row fallback)",
@@ -637,33 +658,10 @@
       "typeVersion": 2.6,
       "position": [
         1648,
-        416
+        880
       ],
       "id": "ac48360f-f404-49e2-8030-7f05f218694f",
       "name": "DB nav back (step=main, offset=0)",
-      "credentials": {
-        "postgres": {
-          "id": "yWlCCvDG4OzxvCkA",
-          "name": "supabase-lehv2"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "/* SQL #1 — /start and v2|nav|reset (defaults)*/\n\nINSERT INTO public.user_state (chat_id, step, period, theme, pay, lr, \"offset\", anchor_date)\nVALUES ($1, 'main', NULL, 'all', 'all', 0, 0, NULL)\nON CONFLICT (chat_id) DO UPDATE\nSET step        = EXCLUDED.step,\n    period      = EXCLUDED.period,\n    theme       = EXCLUDED.theme,\n    pay         = EXCLUDED.pay,\n    lr          = EXCLUDED.lr,\n    \"offset\"    = EXCLUDED.\"offset\",\n    anchor_date = EXCLUDED.anchor_date\nRETURNING *;\n",
-        "options": {
-          "queryReplacement": "={{ [$json.chat_id_text] }}"
-        }
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1648,
-        656
-      ],
-      "id": "0789a295-6e24-404b-b823-dfb60becaf99",
-      "name": "DB Start/Reset (defaults)1",
       "credentials": {
         "postgres": {
           "id": "yWlCCvDG4OzxvCkA",
@@ -688,24 +686,11 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1632,
-        1056
+        2080,
+        1440
       ],
       "id": "98540c17-b143-4b6a-981b-b3743185b1d1",
       "name": "Set ui_prefix"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Same as A2, but prepend prefix:\n\nconst s = $json;\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\nconst hint = s.period ? 'Możesz zmienić okres lub zacząć od nowa.' : 'Najpierw wybierz okres.';\n\nconst prefix = s.ui_prefix ?? '';\n\nconst ui_text =\n`${prefix}Ustawienia:\n• Okres: ${periodLabel}\n\n${hint}`.trim();\n\nconst reply_markup = {\n  inline_keyboard: [\n    [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n    [{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }],\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1904,
-        1072
-      ],
-      "id": "cb9a45d5-848a-40d4-bcd1-43f8b9625c80",
-      "name": "UI Main Menu (with prefix)"
     },
     {
       "parameters": {
@@ -719,7 +704,7 @@
       "typeVersion": 1.2,
       "position": [
         624,
-        -96
+        -176
       ],
       "id": "11b9d096-d40e-473a-97a0-6aebb6d9ea53",
       "name": "Answer Query a callback",
@@ -733,8 +718,631 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('Code in JavaScript').item.json.chat_id_text }}",
+        "operation": "executeQuery",
+        "query": "/* SQL #2 — v2|menu|theme */\n\nINSERT INTO public.user_state (chat_id, step)\nVALUES ($1, 'theme')\nON CONFLICT (chat_id) DO UPDATE\nSET step = EXCLUDED.step\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        -96
+      ],
+      "id": "016a632c-cfed-41df-97a5-6ed40293c12c",
+      "name": "DB step=theme",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node B2 — Code: UI Theme Menu\nconst s = $json;\n\nconst ui_text = 'Wybierz kategorię:';\nconst reply_markup = {\n  inline_keyboard: [\n    [\n      { text: 'Wszystkie', callback_data: 'v2|set|theme=all' },\n      { text: 'Teatr',     callback_data: 'v2|set|theme=teatr' },\n    ],\n    [\n      { text: 'Film',      callback_data: 'v2|set|theme=film' },\n      { text: 'Koncert',   callback_data: 'v2|set|theme=koncert' },\n    ],\n    [\n      { text: 'Spotkanie', callback_data: 'v2|set|theme=spotkanie' },\n      { text: 'Warsztat',  callback_data: 'v2|set|theme=warsztat' },\n    ],\n    [\n      { text: 'Wystawa',   callback_data: 'v2|set|theme=wystawa' },\n      { text: 'Wycieczka', callback_data: 'v2|set|theme=wycieczka' },\n    ],\n    [\n      { text: 'Sport',     callback_data: 'v2|set|theme=sport' },\n      { text: 'Inne',      callback_data: 'v2|set|theme=inne' },\n    ],\n    [\n      { text: 'Wstecz',    callback_data: 'v2|nav|back' },\n    ],\n  ],\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        0
+      ],
+      "id": "67c2e107-04fd-4690-b33b-5ad6679af793",
+      "name": "UI Theme Menu"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
         "text": "={{$json.ui_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[2][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[2][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[2][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[2][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[3][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[3][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[3][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[3][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[4][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[4][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[4][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[4][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[5][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[5][0].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2256,
+        32
+      ],
+      "id": "ecb8c6ce-db23-4211-b752-538f1ac78d5c",
+      "name": "TG Send Theme Menu",
+      "webhookId": "60c83039-a5df-4d1c-8fdd-88ce2ace2d2a",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.set_key}}",
+                    "rightValue": "period",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "503ad98c-7981-407a-b5fa-4dfb06c48679"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "period"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "10c9c0a1-093b-464c-aad2-9d6e4fb9d7f4",
+                    "leftValue": "={{$json.set_key}}",
+                    "rightValue": "theme",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "theme"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4c70309d-f477-4a38-91e5-0a2af8effed1",
+                    "leftValue": "={{$json.set_key}}",
+                    "rightValue": "pay",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pay"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5895930a-4cce-4f20-bfd9-58a9445c61b7",
+                    "leftValue": "={{$json.set_key}}",
+                    "rightValue": "lr",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "long-running"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        272
+      ],
+      "id": "d370ca7d-7c83-44a7-98c0-7043aafe053d",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #3 — v2|set|theme=<code> (theme + step=main)\nDon’t set anchor_date or \"offset\"; trigger does it.*/\n\nINSERT INTO public.user_state (chat_id, theme, step)\nVALUES ($1, $2, 'main')\nON CONFLICT (chat_id) DO UPDATE\nSET theme = EXCLUDED.theme,\n    step  = EXCLUDED.step\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1696,
+        384
+      ],
+      "id": "ccd841a4-7d75-4609-bfed-27ff3b55be87",
+      "name": "DB set theme + step=main",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #2 — v2|menu|pay  */\n\nINSERT INTO public.user_state (chat_id, step)\nVALUES ($1, 'pay')\nON CONFLICT (chat_id) DO UPDATE\nSET step = EXCLUDED.step\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1632,
+        64
+      ],
+      "id": "2e2017b7-0695-4585-8bf5-372ad2dfb5ff",
+      "name": "DB step=pay",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node B2 — Code: UI Theme Menu\nconst s = $json;\n\nconst ui_text = 'Wybierz płatność:';\nconst reply_markup = {\n  \"inline_keyboard\": [\n    [\n      { \"text\": \"Wszystkie\", \"callback_data\": \"v2|set|pay=all\" },\n      { \"text\": \"Bezpłatne\", \"callback_data\": \"v2|set|pay=free\" }\n    ],\n    [\n      { \"text\": \"Płatne\",    \"callback_data\": \"v2|set|pay=paid\" },\n      { \"text\": \"Nieznane\",  \"callback_data\": \"v2|set|pay=unknown\" }\n    ],\n    [\n      { \"text\": \"Wstecz\",    \"callback_data\": \"v2|nav|back\" }\n    ]\n  ]\n};\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        192
+      ],
+      "id": "49327a11-9056-44c7-bf61-bdcdaf8134d8",
+      "name": "UI Pay Menu"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #3 — v2|set|pay=<code> (pay + step=main)\nDon’t set anchor_date or \"offset\"; trigger does it.*/\n\nINSERT INTO public.user_state (chat_id, pay, step)\nVALUES ($1, $2, 'main')\nON CONFLICT (chat_id) DO UPDATE\nSET pay  = EXCLUDED.pay,\n    step = EXCLUDED.step\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1680,
+        544
+      ],
+      "id": "c7beb449-59bb-49af-a797-94bdaac2dfbc",
+      "name": "DB set pay + step=main",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.ui_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[0][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[0][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][0].callback_data}}"
+                    }
+                  },
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[1][1].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[1][1].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{$json.reply_markup.inline_keyboard[2][0].text}}",
+                    "additionalFields": {
+                      "callback_data": "={{$json.reply_markup.inline_keyboard[2][0].callback_data}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2256,
+        192
+      ],
+      "id": "d7f67258-a61b-47e0-97ef-b7789c711823",
+      "name": "TG Send Pay Menu",
+      "webhookId": "60c83039-a5df-4d1c-8fdd-88ce2ace2d2a",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.run_name}}",
+                    "rightValue": "search",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6e7e256c-3ab0-408f-90bf-255a55ab2081"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "search"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1296,
+        1392
+      ],
+      "id": "7ffb6025-78a0-4978-86a9-46c17c92ed97",
+      "name": "ROUTE run_name"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #5 — Read-only state for invalid fallback (always returns 1 row) */\n\nWITH s AS (\n  SELECT * FROM public.user_state WHERE chat_id = $1\n)\nSELECT\n  COALESCE((SELECT chat_id FROM s), $1)        AS chat_id,\n  COALESCE((SELECT step FROM s), 'main')       AS step,\n  (SELECT period FROM s)                       AS period,\n  COALESCE((SELECT theme FROM s), 'all')       AS theme,\n  COALESCE((SELECT pay FROM s), 'all')         AS pay,\n  COALESCE((SELECT lr FROM s), 0)              AS lr,\n  COALESCE((SELECT \"offset\" FROM s), 0)        AS \"offset\",\n  (SELECT anchor_date FROM s)                  AS anchor_date,\n  COALESCE((SELECT updated_at FROM s), now())  AS updated_at,\n  (SELECT user_state_id FROM s)                AS user_state_id;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1632,
+        1168
+      ],
+      "id": "fa0cf403-408f-48a0-abf5-a7aa8ea5a112",
+      "name": "DB read state (run search)",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e3b9afcb-05cd-412f-a8a5-3c8190d01e3f",
+              "leftValue": "={{$json.period}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1872,
+        1168
+      ],
+      "id": "868d2521-9b51-4f61-984f-3ebf17e9688c",
+      "name": "IF period is set?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "284cb735-100b-4b6e-804e-960bcc008380",
+              "name": "=ui_prefix",
+              "value": "=Najpierw wybierz okres.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2080,
+        1024
+      ],
+      "id": "d932513a-b527-4636-b5b2-a10bc5e14852",
+      "name": "Set ui_prefix (need period)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "34d0c4d1-70a5-4b29-b1d5-c500647c03ff",
+              "name": "=ui_prefix",
+              "value": "=Wyniki będą zaimplementowane w S2-07.",
+              "type": "string"
+            },
+            {
+              "id": "3a4aa6fb-ce1f-43a1-baf1-b1a596afda55",
+              "name": "period",
+              "value": "={{ $json.period }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2080,
+        1216
+      ],
+      "id": "6ece0644-53ee-485a-8184-e5fb9b7ed53d",
+      "name": "Set ui_prefix (search stub)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* SQL #3 — v2|set|period=<code> (period + step=main)\nDon’t set anchor_date or \"offset\"; trigger does it.*/\n\nINSERT INTO public.user_state (chat_id, step, period)\nVALUES ($1, 'main', $2)\nON CONFLICT (chat_id) DO UPDATE\nSET step   = EXCLUDED.step,\n    period = EXCLUDED.period\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1648,
+        240
+      ],
+      "id": "562abdaa-dee2-4c7b-9309-66f028379746",
+      "name": "DB set period + step=main",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Code in JavaScript').item.json.chat_id_text }}",
+        "text": "={{ $json.ui_text }}",
         "replyMarkup": "inlineKeyboard",
         "inlineKeyboard": {
           "rows": [
@@ -746,11 +1354,59 @@
                     "additionalFields": {
                       "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
                     }
-                  },
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
                   {
                     "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
                     "additionalFields": {
                       "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][1].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][1].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[2][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[2][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[3][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[3][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[4][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[4][0].callback_data }}"
                     }
                   }
                 ]
@@ -758,23 +1414,178 @@
             }
           ]
         },
-        "additionalFields": {}
+        "additionalFields": {
+          "appendAttribution": false
+        }
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2160,
-        1072
+        3888,
+        752
       ],
-      "id": "3ac3a9fb-39d6-4aa9-8545-cac6099ba1e2",
-      "name": "TG Send Main Menu Branch E",
-      "webhookId": "25ec9e79-0a3e-48db-b918-bdbeec0db6db",
+      "id": "d559c633-c6c9-47a1-8824-5940c0db1660",
+      "name": "TG Send Main Menu2",
+      "webhookId": "c7b1d6ac-98be-460e-b5ef-52902ead0c9b",
       "credentials": {
         "telegramApi": {
           "id": "4jHbcvBP2MW3MVKj",
           "name": "telegram-lehv2-bot"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* v2|set|lr=<0|1>  (lr + step=main)\nDo NOT set anchor_date or \"offset\"; trigger handles offset reset.\n*/\nINSERT INTO public.user_state (chat_id, step, lr)\nVALUES ($1, 'main', $2::smallint)\nON CONFLICT (chat_id) DO UPDATE\nSET step = EXCLUDED.step,\n    lr   = EXCLUDED.lr\nRETURNING *;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.chat_id_text, $json.set_value] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1680,
+        720
+      ],
+      "id": "78639a0b-311f-465d-a469-c3f5dd15b83f",
+      "name": "DB set lr + step=main",
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "de4e50cc-ec5b-4748-bb05-60cebcc1df3f",
+              "leftValue": "={{ $json.period }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3360,
+        512
+      ],
+      "id": "46b9daea-52da-49c8-a99c-73fb7fd87ef2",
+      "name": "If period is set"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Code in JavaScript').item.json.chat_id_text }}",
+        "text": "={{ $json.ui_text }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[0][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[0][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][0].callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[1][1].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[1][1].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[2][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[2][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.reply_markup.inline_keyboard[3][0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.reply_markup.inline_keyboard[3][0].callback_data }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3840,
+        432
+      ],
+      "id": "2da76fb2-2687-4bdd-9917-8cea8afcf4ed",
+      "name": "TG Send Main Menu3",
+      "webhookId": "c7b1d6ac-98be-460e-b5ef-52902ead0c9b",
+      "credentials": {
+        "telegramApi": {
+          "id": "4jHbcvBP2MW3MVKj",
+          "name": "telegram-lehv2-bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $json;\n\nconst prefix = (s.ui_prefix ?? '').trim();\n\n// Labels\nconst periodLabel = ({ today:'Dziś', tomorrow:'Jutro', weekend:'Weekend', week:'Tydzień' }[s.period] ?? '—');\n\nconst themeLabel = ({\n  all: 'Wszystkie', teatr: 'Teatr', film: 'Film', koncert: 'Koncert',\n  spotkanie: 'Spotkanie', warsztat: 'Warsztat', wystawa: 'Wystawa',\n  wycieczka: 'Wycieczka', sport: 'Sport', inne: 'Inne',\n}[s.theme] ?? '—');\n\nconst payLabel = ({\n  all: 'Wszystkie', free: 'Bezpłatne', paid: 'Płatne', unknown: 'Nieznane',\n}[s.pay] ?? '—');\n\nconst lr = Number(s.lr ?? 0);\nconst lrLabel = (lr === 1) ? 'Tak' : 'Nie';\n\nconst hint = s.period\n  ? 'Możesz zmienić ustawienia lub zacząć od nowa.'\n  : 'Najpierw wybierz okres.';\n\n// Text (prefix optional)\nconst ui_text = [\n  prefix || null,\n  'Ustawienia:',\n  `• Okres: ${periodLabel}`,\n  `• Kategoria: ${themeLabel}`,\n  `• Płatność: ${payLabel}`,\n  `• Długoterminowe: ${lrLabel}`,\n  '',\n  hint\n].filter(Boolean).join('\\n');\n\n// LR toggle\nconst lrButton = (lr === 1)\n  ? { text: 'Ukryj długoterminowe', callback_data: 'v2|set|lr=0' }\n  : { text: 'Pokaż długoterminowe', callback_data: 'v2|set|lr=1' };\n\n// Keyboard (conditional search)\nconst keyboard = [\n  [{ text: 'Wybór okresu', callback_data: 'v2|menu|period' }],\n  [\n    { text: 'Wybór kategorii', callback_data: 'v2|menu|theme' },\n    { text: 'Wybór płatności', callback_data: 'v2|menu|pay' },\n  ],\n  [lrButton],\n];\n\nif (s.period) keyboard.push([{ text: 'Pokaż wyniki', callback_data: 'v2|run|search' }]);\n\nkeyboard.push([{ text: 'Zacznij od nowa', callback_data: 'v2|nav|reset' }]);\n\nconst reply_markup = { inline_keyboard: keyboard };\n\nreturn [{ json: { ...s, ui_text, reply_markup } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2992,
+        496
+      ],
+      "id": "45cca7c6-3828-4ee6-bd4f-1b9e29a7d2ec",
+      "name": "UI Main Menu (with prefix)"
     }
   ],
   "pinData": {},
@@ -842,7 +1653,7 @@
         ],
         [
           {
-            "node": "DB set period + step=main",
+            "node": "Switch",
             "type": "main",
             "index": 0
           }
@@ -850,6 +1661,13 @@
         [
           {
             "node": "ROUTE nav_flag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ROUTE run_name",
             "type": "main",
             "index": 0
           }
@@ -896,6 +1714,21 @@
         ],
         [
           {
+            "node": "DB step=theme",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB step=pay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
             "node": "DB read state (1-row fallback)",
             "type": "main",
             "index": 0
@@ -925,28 +1758,6 @@
         ]
       ]
     },
-    "DB set period + step=main": {
-      "main": [
-        [
-          {
-            "node": "UI Main Menu (S2-05) Branch C",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "UI Main Menu (S2-05) Branch C": {
-      "main": [
-        [
-          {
-            "node": "TG Send Main Menu Branch C",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "ROUTE nav_flag": {
       "main": [
         [
@@ -958,7 +1769,7 @@
         ],
         [
           {
-            "node": "DB Start/Reset (defaults)1",
+            "node": "DB Start/Reset (defaults)",
             "type": "main",
             "index": 0
           }
@@ -994,17 +1805,6 @@
         ]
       ]
     },
-    "UI Main Menu (with prefix)": {
-      "main": [
-        [
-          {
-            "node": "TG Send Main Menu Branch E",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Answer Query a callback": {
       "main": [
         []
@@ -1014,18 +1814,232 @@
       "main": [
         [
           {
-            "node": "UI Main Menu (S2-05) Branch C",
+            "node": "UI Main Menu (with prefix)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "DB Start/Reset (defaults)1": {
+    "DB step=theme": {
       "main": [
         [
           {
-            "node": "UI Main Menu (S2-05)",
+            "node": "UI Theme Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Theme Menu": {
+      "main": [
+        [
+          {
+            "node": "TG Send Theme Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "DB set period + step=main",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB set theme + step=main",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB set pay + step=main",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB set lr + step=main",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB read state (1-row fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB set theme + step=main": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB step=pay": {
+      "main": [
+        [
+          {
+            "node": "UI Pay Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Pay Menu": {
+      "main": [
+        [
+          {
+            "node": "TG Send Pay Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB set pay + step=main": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ROUTE run_name": {
+      "main": [
+        [
+          {
+            "node": "DB read state (run search)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB read state (1-row fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB read state (run search)": {
+      "main": [
+        [
+          {
+            "node": "IF period is set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF period is set?": {
+      "main": [
+        [
+          {
+            "node": "Set ui_prefix (need period)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set ui_prefix (search stub)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set ui_prefix (search stub)": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set ui_prefix (need period)": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB set period + step=main": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB set lr + step=main": {
+      "main": [
+        [
+          {
+            "node": "UI Main Menu (with prefix)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If period is set": {
+      "main": [
+        [
+          {
+            "node": "TG Send Main Menu3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TG Send Main Menu2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UI Main Menu (with prefix)": {
+      "main": [
+        [
+          {
+            "node": "If period is set",
             "type": "main",
             "index": 0
           }
@@ -1033,12 +2047,14 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "9953ec91-cfa8-4870-96ad-ac1c2f42af5a",
+  "versionId": "0abfd67b-5926-4a6b-ac6a-9cd142fa33de",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "e9831d5794dbfbbfe37e8a55340f672d15c48d6c06ed0066f5da51930bb91cf7"
