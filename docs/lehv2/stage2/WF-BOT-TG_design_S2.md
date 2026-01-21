@@ -261,6 +261,15 @@ DB write:
     
 - Main menu (period missing guidance, no “Pokaż wyniki”)
 
+**Implementation note (current WF-BOT-TG): two main menu variants**
+
+- `/start` renders a “welcome” main menu variant (minimal text/buttons) used only immediately after `/start` and `v2|nav|reset`.
+- After any other action (set period/theme/pay/lr, nav back, run search stub), WF-BOT-TG renders a “settings main menu” variant that:
+  - shows selected filters (Okres, Kategoria, Płatność, Długoterminowe)
+  - shows “Pokaż wyniki” only if `period` is set
+  - includes the long-running toggle with label depending on `lr`
+
+
 ### `v2|menu|period`
 
 DB write: `step='period'`
@@ -324,18 +333,21 @@ DB write:
     Next: Main menu (toggle label flips)
     
 
-### `v2|run|search`
+### `v2|run|search` (S2-06 stub)
 
-DB write: optional (recommended set `step='main'`, no filter change)
+DB write: none (state is read only).
 
 Then:
 
-- run S2-03 Query A using returned state (or by chat_id if no write)
-    
-    Next:
-    
-- Results if rows exist
-- Zero results if none
+- read `public.user_state` by `chat_id`
+- if `period` is NULL:
+  - respond with guidance “Najpierw wybierz okres” and render Main menu
+- else:
+  - respond with placeholder “Wyniki będą zaimplementowane w S2-07.” and render Main menu
+
+Notes:
+- This branch exists to validate routing + UX before implementing S2-07 query execution.
+
 
 ### `v2|nav|more`
 

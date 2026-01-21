@@ -50,6 +50,9 @@ Payload scheme:
 | Pokaż wyniki | `v2|run|search` |
 | Zacznij od nowa | `v2|nav|reset` |
 
+Note: the `/start` screen may show a subset of main-menu buttons, but WF-BOT-TG must only use the payloads defined in this contract.
+
+
 ### Long‑running toggle (shown as one button depending on current state)
 
 | Button label (PL) | callback_data |

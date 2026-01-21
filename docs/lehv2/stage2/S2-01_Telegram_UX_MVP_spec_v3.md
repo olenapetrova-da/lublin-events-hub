@@ -54,6 +54,8 @@ Rules:
 - shows selected filters (Okres, Kategoria, Płatność, Długoterminowe)
 - if `period` is missing: guidance “Najpierw wybierz okres”
 - if `period` is present: show “Pokaż wyniki”
+- The first screen after `/start` may be a simplified “welcome” variant; after any filter change or navigation, the main menu should still reflect the current filter state and conditional “Pokaż wyniki” rule.
+
 
 Buttons (order can vary):
 - Wybór okresu
