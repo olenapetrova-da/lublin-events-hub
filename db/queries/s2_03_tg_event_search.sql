@@ -40,109 +40,99 @@
 --   - if there are 0 rows, treat has_more as false.
 -- ============================================================================
 
-WITH
-state AS (
-  SELECT
-    us.chat_id,
-    us.period,
-    us.theme,
-    us.pay,
-    us.lr,
-    us."offset" AS offset_n,
-    us.anchor_date
-  FROM public.user_state us
-  WHERE us.chat_id = $1
-  LIMIT 1
-),
-window AS (
-  SELECT
-    -- Weekend: upcoming Sat+Sun; if anchor_date is Sunday -> next weekend.
-    CASE s.period
-      WHEN 'today'    THEN s.anchor_date
-      WHEN 'tomorrow' THEN s.anchor_date + 1
-      WHEN 'week'     THEN s.anchor_date
-      WHEN 'weekend'  THEN s.anchor_date
-                       + ((6 - EXTRACT(ISODOW FROM s.anchor_date)::int + 7) % 7)
-      ELSE s.anchor_date
-    END AS start_date,
-    CASE s.period
-      WHEN 'today'    THEN s.anchor_date
-      WHEN 'tomorrow' THEN s.anchor_date + 1
-      WHEN 'week'     THEN s.anchor_date + 6
-      WHEN 'weekend'  THEN (s.anchor_date
-                       + ((6 - EXTRACT(ISODOW FROM s.anchor_date)::int + 7) % 7)) + 1
-      ELSE s.anchor_date
-    END AS end_date
-  FROM state s
-  WHERE s.period IS NOT NULL AND s.anchor_date IS NOT NULL
-),
-filtered AS (
-  SELECT e.*
-  FROM public.events e
-  CROSS JOIN state s
-  CROSS JOIN window w
-  WHERE e.date BETWEEN w.start_date AND w.end_date
-
-    -- Payment filter
-    AND (s.pay = 'all' OR e.pay_best = s.pay)
-
-    -- Long-running filter
-    AND (s.lr = 1 OR e.range_days < 21)
-
-    -- Theme filter (theme tags)
-    AND (
-      s.theme = 'all'
-      OR EXISTS (
-        SELECT 1
-        FROM public.event_tags et
-        JOIN public.tags t
-          ON t.tag_id = et.tag_id
-        WHERE et.event_id = e.event_id
-          AND t.kind = 'theme'
-          AND t.code = s.theme
-          AND t.enabled IS TRUE
-      )
+    WITH
+    state AS (
+      SELECT
+        us.chat_id,
+        us.period,
+        us.theme,
+        us.pay,
+        us.lr,
+        us."offset" AS offset_n,
+        us.anchor_date
+      FROM public.user_state us
+      WHERE us.chat_id = $1
+      LIMIT 1
+    ),
+    date_window AS (
+      SELECT
+        CASE s.period
+          WHEN 'today'    THEN s.anchor_date
+          WHEN 'tomorrow' THEN s.anchor_date + 1
+          WHEN 'week'     THEN s.anchor_date
+          WHEN 'weekend'  THEN s.anchor_date
+                           + ((6 - EXTRACT(ISODOW FROM s.anchor_date)::int + 7) % 7)
+          ELSE s.anchor_date
+        END AS start_date,
+        CASE s.period
+          WHEN 'today'    THEN s.anchor_date
+          WHEN 'tomorrow' THEN s.anchor_date + 1
+          WHEN 'week'     THEN s.anchor_date + 6
+          WHEN 'weekend'  THEN (s.anchor_date
+                           + ((6 - EXTRACT(ISODOW FROM s.anchor_date)::int + 7) % 7)) + 1
+          ELSE s.anchor_date
+        END AS end_date
+      FROM state s
+      WHERE s.period IS NOT NULL AND s.anchor_date IS NOT NULL
+    ),
+    filtered AS (
+      SELECT e.*
+      FROM public.events e
+      CROSS JOIN state s
+      CROSS JOIN date_window w
+      WHERE e.date BETWEEN w.start_date AND w.end_date
+        AND (s.pay = 'all' OR e.pay_best = s.pay)
+        AND (s.lr = 1 OR e.range_days < 21)
+        AND (
+          s.theme = 'all'
+          OR EXISTS (
+            SELECT 1
+            FROM public.event_tags et
+            JOIN public.tags t ON t.tag_id = et.tag_id
+            WHERE et.event_id = e.event_id
+              AND t.kind = 'theme'
+              AND t.code = s.theme
+              AND t.enabled IS TRUE
+          )
+        )
+    ),
+    ordered_paged AS (
+      SELECT
+        e.event_id,
+        e.date,
+        e.title_display,
+        e.times_text,
+        e.venue_best,
+        e.primary_url,
+        e.earliest_time
+      FROM filtered e
+      ORDER BY
+        e.date ASC,
+        e.earliest_time ASC NULLS LAST,
+        e.title_display ASC,
+        e.event_id ASC
+      OFFSET (SELECT offset_n FROM state)
+      LIMIT ($2 + 1)
+    ),
+    meta AS (
+      SELECT (COUNT(*) > $2) AS has_more
+      FROM ordered_paged
     )
-),
-ordered_paged AS (
-  SELECT
-    e.event_id,
-    e.date,
-    e.title_display,
-    e.times_text,
-    e.venue_best,
-    e.primary_url,
-    e.earliest_time
-  FROM filtered e
-  CROSS JOIN state s
-  ORDER BY
-    e.date ASC,
-    e.earliest_time ASC NULLS LAST,
-    e.title_display ASC,
-    e.event_id ASC
-  OFFSET (SELECT offset_n FROM state)
-  LIMIT ($2 + 1)
-),
-meta AS (
-  SELECT (COUNT(*) > $2) AS has_more
-  FROM ordered_paged
-)
-SELECT
-  op.event_id,
-  op.date,
-  op.title_display,
-  op.times_text,
-  op.venue_best,
-  op.primary_url,
-  (SELECT has_more FROM meta) AS has_more
-FROM ordered_paged op
-ORDER BY
-  op.date ASC,
-  op.earliest_time ASC NULLS LAST,
-  op.title_display ASC,
-  op.event_id ASC
-LIMIT $2;
-
+    SELECT
+      op.event_id,
+      op.date,
+      op.title_display,
+      op.times_text,
+      op.venue_best,
+      op.primary_url,
+      (SELECT has_more FROM meta) AS has_more
+    FROM ordered_paged op
+    ORDER BY
+      op.date ASC,
+      op.earliest_time ASC NULLS LAST,
+      op.title_display ASC,
+      op.event_id ASC
+    LIMIT $2
 
 -- ============================================================================
 -- QUERY B (manual testing helper)

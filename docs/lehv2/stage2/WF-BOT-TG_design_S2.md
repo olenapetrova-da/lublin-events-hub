@@ -333,21 +333,17 @@ DB write:
     Next: Main menu (toggle label flips)
     
 
-### `v2|run|search` (S2-06 stub)
+### `v2|run|search` 
 
-DB write: none (state is read only).
+- DB write: **ensure row exists + set `step='main'` only** (do not touch filters/offset)
+- If `period` is NULL → main menu with guidance
+- Else → execute **Query A** (page_size=10) via **wrapper** (returns 1 row with `rows`, `row_count`, `has_more`)
+- Render:
+    - `row_count=0` → Zero Results screen
+    - `row_count>0` → Results screen
+    - If `has_more=false` → append footer: `To już wszystkie wyniki. Zmień filtry albo zacznij od nowa.`
 
-Then:
-
-- read `public.user_state` by `chat_id`
-- if `period` is NULL:
-  - respond with guidance “Najpierw wybierz okres” and render Main menu
-- else:
-  - respond with placeholder “Wyniki będą zaimplementowane w S2-07.” and render Main menu
-
-Notes:
-- This branch exists to validate routing + UX before implementing S2-07 query execution.
-
+**Why wrapper exists**: n8n Postgres node returns **0 items** when SQL returns 0 rows; wrapper forces 1-row output with JSON rows.
 
 ### `v2|nav|more`
 
@@ -409,13 +405,13 @@ Omission rules:
 
 ### End-of-list
 
-Text indicates no further results.
+Text: `To już wszystkie wyniki. Zmień filtry albo zacznij od nowa`.
 
 Keyboard: `Wstecz`, `Zacznij od nowa`
 
 ### Zero results
 
-Text indicates no matching results.
+Text: `Brak wyników. Zmień filtry albo zacznij od nowa`.
 
 Keyboard: period/theme/pay menus + reset
 
