@@ -105,13 +105,13 @@ Keyboard:
 - Zacznij od nowa
 
 ### B) End of list (no more results)
-Text: “To już wszystkie wyniki.”
+Text: “To już wszystkie wyniki. Zmień filtry albo zacznij od nowa.”
 Keyboard:
 - Wstecz
 - Zacznij od nowa
 
 ### C) Zero results
-Text: “Brak wyników…”
+Text: “Brak wyników. Zmień filtry albo zacznij od nowa.”
 Keyboard:
 - Wybór okresu
 - Wybór kategorii

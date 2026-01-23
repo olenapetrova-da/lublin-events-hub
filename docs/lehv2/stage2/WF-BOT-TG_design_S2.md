@@ -178,6 +178,7 @@ Conceptual pipeline (n8n node names can vary):
 8. **Format Message + Build Inline Keyboard**
 9. **Send Message** (new message)
 
+
 ---
 
 ## Action parsing rules

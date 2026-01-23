@@ -133,6 +133,7 @@ In an n8n Postgres node you can:
 
 2) Run the search query with `chat_id` and `page_size`.
 
+
 If your Postgres node supports bind parameters, map them as:
 - `$1 = <chat_id>`
 - `$2 = 10`
@@ -147,6 +148,27 @@ WITH state AS (
   SELECT * FROM public.user_state WHERE chat_id = '{{ CHAT_ID_EXPR }}' LIMIT 1
 )
 -- ... then copy the rest of Query A from the SQL file ...
+```
+
+### n8n zero-rows wrapper (recommended)
+wrapper returns exactly 1 row: `rows` (jsonb array), `row_count`, `has_more`.
+
+```sql
+/* S2-07 — Query A wrapper: always returns 1 row (rows=[], row_count=0 if no results) */
+WITH q AS (
+  SELECT * FROM (
+    /* Paste db/queries/s2_03_tg_event_search.sql (Query A) here.
+       IMPORTANT: remove the trailing semicolon if present. */
+  ) q
+),
+agg AS (
+  SELECT
+    COALESCE(jsonb_agg(to_jsonb(q)), '[]'::jsonb) AS rows,
+    COALESCE(bool_or(q.has_more), false)          AS has_more,
+    COUNT(*)                                     AS row_count
+  FROM q
+)
+SELECT rows, has_more, row_count FROM agg;
 ```
 
 ---
