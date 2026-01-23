@@ -132,7 +132,7 @@
       op.earliest_time ASC NULLS LAST,
       op.title_display ASC,
       op.event_id ASC
-    LIMIT $2
+    LIMIT $2;
 
 -- ============================================================================
 -- QUERY B (manual testing helper)
