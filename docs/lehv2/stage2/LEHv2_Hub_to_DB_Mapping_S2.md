@@ -231,6 +231,8 @@ Canonicalization produces:
 Allowed values:
 - `free`, `paid`, `unknown`
 
+Zoom list-page marker → Hub "Payment for Entry"="No"; otherwise empty → DB `unknown`
+
 If multiple values exist across showtimes, the conservative rule is:
 - `paid` wins over `free` (because user expects “paid” if any paid instance exists),
 - otherwise `free`, else `unknown`.
