@@ -58,6 +58,22 @@
  */
 
 
+/**
+ * S2-07A (Payment strategy v2) — Zoom list-page FREE detection
+ * ----------------------------------------------------------------
+ * Goal: detect FREE cheaply on list pages (no per-event enrichment).
+ * Signal: Zoom marks some cards with data-infos-ids="34" on the wrapper
+ *         <div class="event-card-wrapper ...">.
+ * Output convention (Hub):
+ *   - "Payment for Entry" = "No"   -> FREE
+ *   - "Payment for Entry" = ""     -> UNKNOWN
+ *
+ * Debugging support:
+ *   - pass ?debug_slug=<event_ref> to include __debug_* fields ONLY for that event.
+ *   - this helps verify whether the worker actually sees data-infos-ids in fetched HTML.
+ */
+const ZOOM_FREE_INFO_IDS = new Set(["34"]);
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -73,6 +89,9 @@ export default {
       const groupTimes = flag(q.get("group_times"));
       const wantRows   = flag(q.get("sheet"));
 
+
+      // Debug: include __debug_* fields for a single event_ref (optional)
+      const debugSlug  = (q.get("debug_slug") || "").trim().toLowerCase();
       const enrich     = flag(q.get("enrich"));
       const enrichMax  = clamp(int(q.get("enrich_max"), 15), 0, 50);
 
@@ -103,7 +122,7 @@ export default {
       // page 1
       let r = await fetchPage(listUrl, ctx, budget, { useCache: true, writeCache: true });
       pages_scanned++; scanned.push(listUrl);
-      if (r.ok) collect(parseZoomList(r.html));
+      if (r.ok) collect(parseZoomList(r.html, debugSlug));
 
       // next pages: /wydarzenia/page/2/
       for (let p = 2; p <= pagesMax; p++) {
@@ -112,7 +131,7 @@ export default {
         r = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(next);
         if (!r.ok) break;
-        collect(parseZoomList(r.html));
+        collect(parseZoomList(r.html, debugSlug));
       }
 
       // ---- Optionally crawl /w-trakcie (ongoing, usually no-time ranges)
@@ -120,7 +139,7 @@ export default {
         // page 1
         let r2 = await fetchPage(inprogUrl, ctx, budget, { useCache: true, writeCache: true });
         pages_scanned++; scanned.push(inprogUrl);
-        if (r2.ok) collect(parseZoomList(r2.html));
+        if (r2.ok) collect(parseZoomList(r2.html, debugSlug));
 
         // heuristic pagination: /w-trakcie/page/2/
         for (let p = 2; p <= inprogPages; p++) {
@@ -129,7 +148,7 @@ export default {
           r2 = await fetchPage(next, ctx, budget, { useCache: true, writeCache: true });
           pages_scanned++; scanned.push(next);
           if (!r2.ok) break;
-          collect(parseZoomList(r2.html));
+          collect(parseZoomList(r2.html, debugSlug));
         }
       }
 
@@ -271,26 +290,100 @@ async function fetchPage(url, ctx, budget, opts = {}) {
   }
 }
 
-/* ---------------- List parser (Zoom cards) — DOM-precise ---------------- */
-function parseZoomList(raw) {
+/* ---------------- List parser (Zoom cards) — wrapper-aware ---------------- */
+/**
+ * Wrapper-aware parsing:
+ * - Prefer slicing blocks by `<div class="event-card-wrapper ...>` to access `data-infos-ids`
+ *   which is used as a cheap FREE marker (S2-07A).
+ * - Fallback to legacy `<div class="event-card"...>` scanning if wrappers are missing.
+ *
+ * Debugging:
+ * - If `debugSlug` matches `event_ref`, we attach __debug_* fields to that one event object.
+ *   This is intentionally sparse to avoid noisy payloads in normal runs.
+ */
+function parseZoomList(raw, debugSlug = "") {
   const html = normalizeHtml(raw);
   const out = [];
 
-  // Iterate per <div class="event-card"> ... </div>
+  // NOTE: Zoom HTML sometimes renders wrapper <div> attributes in different order
+  // (e.g., class isn't the first attribute). Also, the class token can appear in
+  // scripts/styles. So:
+  //  1) find occurrences of the token `event-card-wrapper`
+  //  2) keep only those occurrences that are INSIDE an opening `<div ...>` tag
+  //  3) slice wrapper blocks by jumping from one valid wrapper `<div ...>` to the next
+  //
+  // This keeps CPU bounded and avoids Cloudflare "exceeded resource limits" (1102)
+  // caused by treating non-wrapper hits as real cards.
+  const WRAP_TOKEN = "event-card-wrapper";
+  const CARD = '<div class="event-card"';
+  const MAX_BLOCKS = 300; // safety guard (pages are small; this is plenty)
+
+  // ---------- Wrapper-aware pass (preferred: reads data-infos-ids) ----------
   let i = 0;
+  let blocks = 0;
+
   while (true) {
-    const start = html.indexOf('<div class="event-card"', i);
-    if (start < 0) break;
-    const next  = html.indexOf('<div class="event-card"', start + 1);
-    const block = html.slice(start, next > 0 ? next : html.length);
-    i = next > 0 ? next : html.length;
+    const hit = html.indexOf(WRAP_TOKEN, i);
+    if (hit < 0) break;
+
+    // Find the nearest `<div` before the token.
+    const divStart = html.lastIndexOf("<div", hit);
+    if (divStart < 0) { i = hit + WRAP_TOKEN.length; continue; }
+
+    // Find end of that `<div ...>` opening tag.
+    const openEnd = html.indexOf(">", divStart);
+    if (openEnd < 0) break;
+
+    // Token must be inside the opening tag, otherwise it's likely inside script/style/text.
+    if (hit > openEnd) { i = hit + WRAP_TOKEN.length; continue; }
+
+    // Build openTag (cap length to avoid huge slices).
+    const openTag = html.slice(divStart, Math.min(openEnd + 1, divStart + 900));
+
+    // Find next valid wrapper `<div ...>` start to bound the current block.
+    let nextDivStart = -1;
+    let j = openEnd + 1;
+    let guard = 0;
+
+    while (true) {
+      const nh = html.indexOf(WRAP_TOKEN, j);
+      if (nh < 0) break;
+
+      const ds = html.lastIndexOf("<div", nh);
+      if (ds < 0) { j = nh + WRAP_TOKEN.length; if (++guard > 80) break; continue; }
+
+      const oe = html.indexOf(">", ds);
+      if (oe < 0) break;
+
+      // Accept only if token is inside that opening tag.
+      if (nh <= oe) { nextDivStart = ds; break; }
+
+      j = nh + WRAP_TOKEN.length;
+      if (++guard > 80) break;
+    }
+
+    const block = html.slice(divStart, nextDivStart > 0 ? nextDivStart : html.length);
+    i = nextDivStart > 0 ? nextDivStart : html.length;
+
+    // Extract wrapper attribute data-infos-ids (robust against spaces + quotes).
+    const infosRaw =
+      firstMatch(openTag, /data-infos-ids\s*=\s*["']([^"']*)["']/i) ||
+      firstMatch(openTag, /data-infos-ids\s*=\s*["']?([^"'>\s]*)/i) ||
+      "";
+
+    const infosIds = (infosRaw || "").split(",").map(s => s.trim()).filter(Boolean);
+    const markerFree = infosIds.some(id => ZOOM_FREE_INFO_IDS.has(id));
 
     // Title + Link
     const mTitle = /<a[^>]+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>/i.exec(block);
     if (!mTitle) continue;
+
     const href  = (mTitle[1] || "").trim();
     const title = text(mTitle[2]);
     if (!title) continue;
+
+    const evref = zoomEventRef(href);
+    const debug = (debugSlug && evref === debugSlug);
 
     // Venue
     const venue = text(firstMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
@@ -303,6 +396,11 @@ function parseZoomList(raw) {
     const spanTexts  = extractDateSpanTexts(datesBlock);
     const { Date, Time, End } = parseListDateTimeFromSpans(spanTexts);
 
+    // Payment in S2-07A: only FREE ("No") or UNKNOWN ("")
+    // detectPaymentList(block) is list-only (never forces "Yes"); markerFree has priority.
+    const p = detectPaymentList(block); // "No" or ""
+    const isFree = markerFree || (p === "No");
+
     out.push({
       Title: title,
       Date: Date || "",
@@ -310,12 +408,83 @@ function parseZoomList(raw) {
       Venue: venue || "",
       Category: category || "",
       Link: href,
-      event_ref: zoomEventRef(href),   // -- added to Official adapter to address issues with multiple pages for the same event. Here is for consistant use in n8n 
-      "Payment for Entry": detectPaymentList(block), // list-only: "No" or ""
+      event_ref: evref,
+      "Payment for Entry": isFree ? "No" : "",
       Source: "zoom.lublin.pl",
-      _EndDate: End || Date || "",  // ADR-0009: ensure present; default to Date
-      _fp_url: urlPath(href)
+      _EndDate: End || Date || "",
+      _fp_url: urlPath(href),
+
+      ...(debug ? {
+        __debug_parseMode: "wrapper",
+        __debug_infosRaw: infosRaw,
+        __debug_markerFree: markerFree,
+        __debug_detectPayment: p,
+        __debug_isFree: isFree,
+        __debug_openTag: openTag.slice(0, 250)
+      } : {})
     });
+
+    if (++blocks >= MAX_BLOCKS) break;
+  }
+
+  // If wrapper pass produced events, return them (best effort).
+  if (out.length) return out;
+
+  // ---------- Fallback: legacy behavior (no wrapper attrs available) ----------
+  i = 0;
+  while (true) {
+    const start = html.indexOf(CARD, i);
+    if (start < 0) break;
+    const next  = html.indexOf(CARD, start + 1);
+    const block = html.slice(start, next > 0 ? next : html.length);
+    i = next > 0 ? next : html.length;
+
+    // Title + Link
+    const mTitle = /<a[^>]+href="(https:\/\/zoom\.lublin\.pl\/wydarzenie\/[^"]+)"[^>]*class="event-card__link"[^>]*>\s*<h3[^>]*>([\s\S]*?)<\/h3>/i.exec(block);
+    if (!mTitle) continue;
+    const href  = (mTitle[1] || "").trim();
+    const title = text(mTitle[2]);
+    if (!title) continue;
+
+    const evref = zoomEventRef(href);
+    const debug = (debugSlug && evref === debugSlug);
+
+    // Venue
+    const venue = text(firstMatch(block, /<div\s+class="event-card__place">[\s\S]*?<span>([\s\S]*?)<\/span>/i) || "");
+
+    // Category
+    const category = text(firstMatch(block, /<div\s+class="event-card__data-right"[\s\S]*?<a[^>]*class="c-btn[^"]*c-btn--primary[^"]*"[^>]*>\s*<span>([\s\S]*?)<\/span>/i) || "");
+
+    // Date/Time — read ALL <span> inside .event-card__dates (supports two-span ranges)
+    const datesBlock = sliceFirstBlock(block, "event-card__dates");
+    const spanTexts  = extractDateSpanTexts(datesBlock);
+    const { Date, Time, End } = parseListDateTimeFromSpans(spanTexts);
+
+    // Payment: list-only (FREE or UNKNOWN)
+    const p = detectPaymentList(block); // "No" or ""
+    const isFree = (p === "No");
+
+    out.push({
+      Title: title,
+      Date: Date || "",
+      Time: Time || "",
+      Venue: venue || "",
+      Category: category || "",
+      Link: href,
+      event_ref: evref,
+      "Payment for Entry": isFree ? "No" : "",
+      Source: "zoom.lublin.pl",
+      _EndDate: End || Date || "",
+      _fp_url: urlPath(href),
+
+      ...(debug ? {
+        __debug_parseMode: "card",
+        __debug_detectPayment: p,
+        __debug_isFree: isFree
+      } : {})
+    });
+
+    if (out.length >= MAX_BLOCKS) break;
   }
 
   return out;
