@@ -93,8 +93,27 @@ Insert a single `ingest_log` row with:
 Supabase/Postgres may run in UTC, while the window date is computed in Europe/Warsaw in n8n.  
 This is OK as long as `date` is passed explicitly (string → `::date`) and you do not rely on `current_date` inside the workflow.
 
-### Long‑running events switch
-The ingestion routine always materializes canonical events; the **filter** (exclude long‑running when `lr=0`) is applied at query time in S2‑03.
+### Long-running events switch
+The ingestion routine always materializes canonical events; the **filter** (exclude long-running when `lr=0`) is applied at query time in S2-03.
+
+### Payment strategy v2 (S2-07A): FREE cheaply, else UNKNOWN
+Stage 2 “payment” is intentionally **not enriched** per event in S2-07A.
+
+Key intent:
+- detect **FREE** cheaply from list pages:
+  - Zoom: wrapper marker (`data-infos-ids`) → Hub emits `"Payment for Entry":"No"` when FREE
+  - lublin.eu (OFFICIAL): dual-fetch (default + FREE-filter POST) + URL membership → Hub emits `"Payment for Entry":"No"` when FREE
+- everything else remains **UNKNOWN** (Hub emits empty string)
+
+Workflow implications:
+- In WF-INGEST mapping, normalize staging payment strictly to:
+  - `free` when Hub `"Payment for Entry"` indicates FREE (`"No"`)
+  - `unknown` otherwise (including empty/whitespace)
+- Do **not** produce `paid` in S2-07A (reserved for later enrichment).
+
+Canonicalization expectation (DB-side):
+- `events.pay_best = 'free'` if **any** contributing listing/showtime says free
+- else `events.pay_best = 'unknown'`
 
 ---
 
@@ -152,4 +171,53 @@ A tiny separate workflow is enough (no changes to WF-INGEST required):
 Telegram chat_id note:
 - message your bot once (e.g. `/start`)
 - use Telegram “Get Updates” (or your bot workflow execution) to copy `message.chat.id`
+
+---
+
+## 6) Ops canary: OFFICIAL adapter (FREE filter health)
+
+### Purpose
+lublin.eu (OFFICIAL) FREE detection relies on a **POST filter contract** (`bezplatne=1&filtruj=1`) + URL membership matching. If the POST contract changes, FREE detection can silently stop unless monitored.
+
+### Health-check request (template)
+Use a low-cost request that primarily validates the POST flow (not the “existence” of free events):
+
+`https://official-lublin-2hub.elenipster.workers.dev/?date={{$now.setZone('Europe/Warsaw').toFormat('yyyy-LL-dd')}}&period=day&days=1&pages=1&include_in_progress=0&group_times=1&limit=200&sheet=0`
+
+Key fields to monitor:
+- `free_filter_post_ok_pages`, `free_filter_post_fail_pages`
+- `free_filter_post_unapplied_pages`, `free_filter_post_skipped_budget`
+- `free_filter_mode`, `free_filter_body_config`
+- (secondary) `free_detected_count_total`
+- `budget_used`, `pages_scanned`, `scanned[]`
+
+### Alarm rules
+Trigger an alert if **any** of these is true:
+- `free_filter_post_ok_pages == 0`
+- `free_filter_post_fail_pages > 0`
+- `free_filter_post_unapplied_pages > 0`
+- `free_filter_post_skipped_budget > 0`
+
+Optional “soft” alarm (can be noisy if a day has no free events):
+- `free_detected_count_total == 0` for multiple consecutive checks
+
+### Investigation steps (when alarm fires)
+1) Confirm the worker `version` in response matches the expected deployed build.
+2) Verify the POST contract fields in response:
+   - `free_filter_body_config` should match expected (e.g. `bezplatne=1&filtruj=1`)
+3) If POST fails or returns empty:
+   - re-check request headers + content-type (form-encoded)
+   - re-check if the site moved filter parameter names
+4) If POST succeeds but FREE count is unexpectedly low:
+   - verify URL normalization:
+     - compare `_fp_url` paths from default vs free-only lists
+     - ensure http/https normalization and trailing slash handling are consistent
+
+### Optional: n8n canary workflow (recommended)
+Same pattern as Zoom canary:
+- Cron daily (e.g. 09:00 Europe/Warsaw)
+- HTTP Request → OFFICIAL health-check URL above
+- Set node computes:
+  - `alarm = (ok_pages==0) OR (fail_pages>0) OR (unapplied>0) OR (skipped_budget>0)`
+- IF → on TRUE send Telegram message
 

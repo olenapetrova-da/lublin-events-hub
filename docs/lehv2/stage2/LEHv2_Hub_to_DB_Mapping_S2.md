@@ -1,13 +1,13 @@
 # LEHv2 Hub → DB Mapping (Stage 2)
 
-Stage: **Stage 2 — Canonical events + multi‑source listings + taxonomy foundation**  
-Primary goal: support Telegram UX queries (period/theme/pay/long‑running toggle) with a data model that is:
+Stage: **Stage 2 — Canonical events + multi-source listings + taxonomy foundation**  
+Primary goal: support Telegram UX queries (period/theme/pay/long-running toggle) with a data model that is:
 - deduplicated at “1 canonical line per day” level
 - traceable back to sources (URLs)
 - robust to missing/partial source data
 - cheap to maintain (one HTTP to Hub + staging upserts + one SQL canonicalization call)
 
-This document is the Stage‑2 successor of:
+This document is the Stage-2 successor of:
 - `LEHv2_Hub_to_DB_Mapping_S1.md` (Stage 1 mapping)
 
 ## What changed vs Stage 1 (read this first)
@@ -16,7 +16,7 @@ Stage 1 mapped Hub fields directly into two tables: `events` + `showtimes`.
 Stage 2 splits the pipeline into **two phases**:
 
 1) **Hub → staging (`s1_events`, `s1_showtimes`)**  
-   This phase stores source‑shaped data with minimal transforms.
+   This phase stores source-shaped data with minimal transforms.
 
 2) **SQL canonicalization (`public.s2_01a_apply(...)`) → canonical tables**  
    This phase produces what the bot queries:
@@ -32,7 +32,7 @@ Important implications:
 - **The same source URL can produce multiple canonical days**, so Stage 2 treats a listing as:
   **(source, url, canonical event_id)**, not just (source, url).
 - **Missing categories are tracked** using a special raw value `__MISSING__`.
-- **Long‑running events** are supported as a UX filter (toggle): long‑running if `range_days >= 21`.
+- **Long-running events** are supported as a UX filter (toggle): long-running if `range_days >= 21`.
 
 ---
 
@@ -48,6 +48,13 @@ Typical request parameters (conceptual):
 Notes:
 - In Stage 2, `date/days` define the **canonicalization window**.
 - Staging tables may contain rows with spans outside the window; canonical tables are pruned to the window.
+
+### S2-07A note: Hub does not dedupe across sources
+For S2-07A and Stage 2 generally, the Hub layer should **not** dedupe across sources.
+- Each source (zoom.lublin.pl, lublin.eu, …) emits its own listing rows.
+- Stage 2 canonicalization (SQL) is responsible for merging those listings into one canonical `events` row per day, and preserving traceability via `event_listings`.
+
+(If Hub includes helper fields like `_fp_url`, `_via`, `Sources`, they are for debugging/observability; ingestion should still rely on the canonical fields `Source`, `Link`, `Title`, `Date`, `Time`, `Venue`, `Category`, `Payment for Entry`.)
 
 ---
 
@@ -86,11 +93,11 @@ Stage 2 uses **three** identifiers:
    It is uniquely identified by:
    - `(source, url, event_id)` (because the same URL can map to multiple canonical days/events)
 
-   This keeps traceability correct for multi‑day pages and avoids losing per‑day associations.
+   This keeps traceability correct for multi-day pages and avoids losing per-day associations.
 
 ### 2.3 “Logical event” vs canonical event vs listing (Stage 2 view)
 - **Logical event** (real world): may span many days; too hard to reliably identify across sources in MVP.
-- **Canonical event** (Stage 2): **date‑scoped occurrence** (what the bot prints as one line).
+- **Canonical event** (Stage 2): **date-scoped occurrence** (what the bot prints as one line).
 - **Listing**: a single source’s page entry (URL) attached to a canonical event/day.
 
 ---
@@ -111,7 +118,7 @@ Recommended columns (conceptual):
 
 Transforms:
 - Trim whitespace.
-- Preserve original strings as‑is; do **not** attempt taxonomy mapping here.
+- Preserve original strings as-is; do **not** attempt taxonomy mapping here.
 
 ### 3.2 `s1_showtimes`
 One row per (staging event_id, date span, optional time).
@@ -122,7 +129,7 @@ Recommended columns (conceptual):
 - `_end_date` — end date inclusive (date)
 - `time` — nullable (time)
 - `venue` — nullable (text)
-- `payment` — nullable / enum-ish (`free|paid|unknown`)
+- `payment` — nullable / enum-ish
 
 #### 3.2.1 Common transforms
 - Dates: parse to `date` type.
@@ -135,17 +142,28 @@ Recommended columns (conceptual):
 - Venue/payment:
   - keep nullable; canonicalization later decides “best” values.
 
+##### S2-07A payment normalization (free/unknown only)
+In S2-07A, Hub emits payment as:
+- `"Payment for Entry": "No"`  → treat as **FREE**
+- empty / whitespace           → treat as **UNKNOWN**
+
+Staging `s1_showtimes.payment` must be normalized strictly to:
+- `free`
+- `unknown`
+
+No `paid` values are produced in S2-07A (reserved for later enrichment).
+
 #### 3.2.2 Multi-showtime logic (splitting `Time`)
 If a source provides multiple times in one field:
 - split into multiple `s1_showtimes` rows
 - keep the same `date/_end_date/venue/payment`
 - example: `11:30, 13:30, 15:30` → three rows
 
-#### 3.2.3 Source-specific note: multi‑URL patterns (example: `official`)
-Some sources use **one URL for a multi‑day span**.
+#### 3.2.3 Source-specific note: multi-URL patterns (example: `official`)
+Some sources use **one URL for a multi-day span**.
 Stage 2 supports this by:
 - allowing `_end_date > date` in staging
-- generating per‑day canonical events in the window
+- generating per-day canonical events in the window
 - attaching the same `(source,url)` to multiple canonical events via `(source,url,event_id)` uniqueness
 
 ---
@@ -159,20 +177,28 @@ For each `s1_showtimes` row with `[date .. _end_date]`:
 - generate one “occurrence day” for each day in the span that falls within the window
 
 Result:
-- multi‑day events appear as per‑day canonical events (Telegram UX friendly)
+- multi-day events appear as per-day canonical events (Telegram UX friendly)
 
 ### 4.2 Canonical events: `events`
 For each `(title_norm, occ_date)` in the window:
-- compute `earliest_time` (min non‑NULL time)
+- compute `earliest_time` (min non-NULL time)
 - compute `times_text` (sorted list of times or `-`)
 - compute deterministic `event_id` from the identity contract
 - choose “best fields” from listings:
   - title_display (from winner listing)
-  - venue_best/payment_best (from winner listing)
+  - venue_best (from winner listing)
+  - payment_best (see S2-07A rule below)
 
-**Winner rule (locked):** completeness score (venue/payment/time present), tie‑breaker official > zoom.
+**Winner rule (locked):** completeness score (venue/payment/time present), tie-breaker official > zoom.
 
-Long‑running fields:
+##### S2-07A override: payment_best is “free if any listing is free”
+Because S2-07A only produces `free|unknown`, the correct and safe rule is:
+- `events.pay_best = 'free'` if **any** contributing listing/showtime indicates FREE
+- else `events.pay_best = 'unknown'`
+
+This mirrors the UX intent: a single known FREE listing should make the canonical line filterable by “Free only”.
+
+Long-running fields:
 - `range_days`: maximum span length (days) among contributing listings
 - `is_long_running`: `range_days >= 21`
 These enable the Telegram filter `lr`.
@@ -223,21 +249,33 @@ Special cases:
 
 ## 5. Payment mapping (Stage 2)
 
-Staging stores payment raw per showtime row.
-Canonicalization produces:
-- listing-level `pay_raw` (aggregated across times)
-- canonical `events.pay_best` from the winner listing
+### 5.1 Payment strategy v2 (S2-07A — current)
+S2-07A intentionally detects only:
+- `free`
+- `unknown`
 
-Allowed values:
+Source-level detection (Hub layer):
+- Zoom: list-page wrapper marker (`data-infos-ids`) maps FREE to `"Payment for Entry":"No"`, else empty
+- OFFICIAL (lublin.eu): dual-fetch (default + FREE-only filter) + URL membership maps FREE to `"Payment for Entry":"No"`, else empty
+
+Ingestion normalization:
+- `"No"` → `free`
+- empty/whitespace/other → `unknown`
+
+Canonicalization:
+- `events.pay_best = 'free'` if any listing/showtime is free
+- else `'unknown'`
+
+### 5.2 Future extension (paid enrichment)
+Allowed values can later expand to:
 - `free`, `paid`, `unknown`
 
-Zoom list-page marker → Hub "Payment for Entry"="No"; otherwise empty → DB `unknown`
-
-If multiple values exist across showtimes, the conservative rule is:
-- `paid` wins over `free` (because user expects “paid” if any paid instance exists),
+When `paid` becomes reliably detectable (e.g., per-event enrichment), define precedence explicitly.
+A conservative default is:
+- `paid` wins over `free` (if any paid instance exists),
 - otherwise `free`, else `unknown`.
 
-(If you later want source priority to affect pay, apply it only as a tie‑breaker after completeness.)
+(Do not apply this precedence in S2-07A, because `paid` is not produced.)
 
 ---
 
@@ -256,34 +294,7 @@ This keeps:
 
 ## 7. Out of scope / future extensions
 
-- “True logical event” entity (cross‑day/cross‑source identity)
+- “True logical event” entity (cross-day/cross-source identity)
 - full-text search
 - LLM enrichment (venue normalization, dedupe improvements, tagging assistance)
 - personalized ranking
-
----
-
-## 8. Appendix: Example mapping (Stage 2)
-
-### 8.1 Single-day event with two showtimes
-Input (staging):
-- `s1_events`: one row (source, url, title, category_raw)
-- `s1_showtimes`: two rows with same `date=_end_date`, times `09:30` and `11:30`
-
-Output (canonical):
-- `events`: one row for that date, `earliest_time=09:30`, `times_text='09:30, 11:30'`
-- `event_showtimes`: two rows with those times
-- `event_listings`: one row per source URL attached to that canonical event
-- `event_listing_categories`: one row per raw label (or `__MISSING__`)
-- taxonomy: `event_tags` inserted where alias exists; else `tag_unmapped`
-
-### 8.2 Multi-day exhibition without time (long-running)
-Input (staging):
-- `s1_showtimes`: `date=2025-01-22`, `_end_date=2028-02-28`, `time=NULL`
-
-Output (canonical, within window):
-- for each day in the window: one canonical `events` row with `times_text='-'`, `earliest_time=NULL`
-- `range_days` is large, so `is_long_running=true`
-- Telegram filter:
-  - `lr=0` excludes it from results
-  - `lr=1` includes it
