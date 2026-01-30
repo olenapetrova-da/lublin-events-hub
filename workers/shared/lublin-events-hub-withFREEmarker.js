@@ -61,6 +61,9 @@
 // Sheet mode (sheet=1) returns rows[] with 8 columns (NO Image URL): 
 // [Title, Date, Time, Venue, Category, Link, Payment for Entry, Source]
 
+const HUB_VERSION = "hub-2026-01-28-s2-07a-url-only-v3";
+// NOTE: bump HUB_VERSION whenever you deploy, so you can confirm which code is live from the JSON response.
+
 export default {
   async fetch(request, env, ctx) {
     const u = new URL(request.url);
@@ -161,10 +164,13 @@ export default {
 
     // ---- Prepare outputs
     const rows = top.map(toRow);
-    const topEnriched = top.map(e => ({
-      ...e,
-      Sources: (Array.isArray(e._via) ? Array.from(new Set(e._via)).join(", ") : (e.Source || ""))
-    }));
+    const topEnriched = top.map(e => {
+      const clean = stripInternalFields(e);
+      return {
+        ...clean,
+        Sources: (Array.isArray(e._via) ? Array.from(new Set(e._via)).join(", ") : (e.Source || ""))
+      };
+    });
 
     // Envelope fields useful for runbook visibility
     const envelope = {
@@ -181,10 +187,12 @@ export default {
     };
 
     return json({
+    version: HUB_VERSION,
       ...envelope,
       sources_count: sources.length,
       received: allEvents.length,
       deduped: uniq.length,
+      dedupe_mode: "per_source_url",
       count: top.length,
       per_source,
       dedupe_stats: { merges: stats.merges, showtime_merges: stats.time_merges, fallback_merges: stats.fallback_merges },
@@ -283,8 +291,16 @@ function toRow(e){
 }
 
 function normalizeForKey(s){ return (s||"").normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
+
+// Source domain key used to prevent cross-source merges in Hub dedupe
+// (S2-07A hotfix): cross-source merges can mix Title/URL and propagate FREE incorrectly.
+function sourceKey(e){
+  return normalizeForKey((e && (e.Source || e.source || e.source_domain)) ? String(e.Source || e.source || e.source_domain) : '');
+}
 function urlPath(u){ try { return new URL(u).pathname.replace(/\/+$/,""); } catch { return ""; } }
-function titleDateVenueKey(e){ return `${normalizeForKey(e.Title)}|${e.Date||""}|${normalizeForKey(e.Venue)}`; }
+function titleDateVenueKey(e){
+  return `${sourceKey(e)}|${normalizeForKey(e.Title)}|${e.Date||""}|${normalizeForKey(e.Venue)}`;
+}
 
 function tokenSet(s){ return new Set(normalizeForKey(s).split(" ").filter(Boolean)); }
 function jaccardSets(A, B){ if(!A.size && !B.size) return 1; if(!A.size || !B.size) return 0; let c=0; for(const t of A) if(B.has(t)) c++; return c/(A.size + B.size - c); }
@@ -378,18 +394,20 @@ function pickBetter(a, b){
   if (!winner.Category && other.Category) winner.Category = other.Category;
   if (!winner.Venue && other.Venue) winner.Venue = other.Venue;
 
-  // Prefer higher-priority Source (Zoom > Official)
-  const preferred = chooseSource(winner.Source, other.Source);
-  if (preferred !== winner.Source) {
-  winner.Source = preferred;
-
-  // keep Source/Link/event_ref aligned
-  if (other.Link) winner.Link = other.Link;
-  if (other._fp_url) winner._fp_url = other._fp_url;
-  if (other.event_ref) winner.event_ref = other.event_ref;
-}
+  // NOTE (S2-07A hotfix): Hub dedupe is per-source only (see dedupe()).
+  // Never rewrite Source/Link/event_ref using another record; that previously caused Title↔URL mismatches
+  // and false FREE labels when unrelated events were merged.
 
   return winner;
+}
+
+// Remove internal caching fields from outbound JSON (Sets serialize as {} and confuse debugging).
+function stripInternalFields(e){
+  const out = { ...e };
+  delete out._norm_title;
+  delete out._slug_tokens;
+  delete out._fp_tdv;
+  return out;
 }
 
 function ensureCache(e){
@@ -399,69 +417,55 @@ function ensureCache(e){
 }
 
 function dedupe(list, stats){
+  // S2-07A safety hardening (URL-only dedupe)
+  // ------------------------------------------------------------
+  // Root-cause we saw in practice: heuristic (venue-less) fallback merges can accidentally
+  // merge unrelated OFFICIAL events that share a time slot (e.g., multiple 12:00 events),
+  // causing "missing events" downstream (Hub -> WF-INGEST -> DB).
+  //
+  // In Stage 2 we *do not need* fuzzy identity in the Hub layer:
+  // - Adapters already provide stable per-source URLs (`_fp_url` / Link path).
+  // - Cross-source identity is handled later in DB canonicalization.
+  //
+  // Therefore: dedupe strictly by (Source, Date, _fp_url-or-LinkPath) and only merge showtimes
+  // when the URL key is identical.
+  // ------------------------------------------------------------
   stats = stats || { merges: 0, time_merges: 0, fallback_merges: 0 };
   const out = [];
   const keyToIdx = new Map();
 
   for (const e of list) {
-    ensureCache(e);
-
     const d = e.Date || "";
-    const urlCore = e._fp_url || urlPath(e.Link);
-    const tdvCore = e._fp_tdv || titleDateVenueKey(e);
-    const urlKey = urlCore ? `${d}|${urlCore}` : "";
-    const tdvKey = tdvCore ? `${d}|${tdvCore}` : "";
+    const src = sourceKey(e) || "__unknown__";
+    const urlCore = e._fp_url || urlPath(e.Link) || (e.Link || "").trim();
+    const key = `${src}|${d}|${urlCore}`;
 
-    let idx = -1;
-    if (urlKey && keyToIdx.has(urlKey)) idx = keyToIdx.get(urlKey);
-    else if (tdvKey && keyToIdx.has(tdvKey)) idx = keyToIdx.get(tdvKey);
-    else {
-      for (let i = 0; i < out.length; i++) {
-        const ex = out[i];
-        if (!sameDate(d, ex.Date || "")) continue;
-
-        // Ensure cache on candidate
-        ensureCache(ex);
-
-        // Primary rule: both have Venue → use existing title+venue overlap thresholds
-        const bothHaveVenue = (e.Venue||"").trim() && (ex.Venue||"").trim();
-        if (bothHaveVenue) {
-          if (overlap(e.Title || "", ex.Title || "") >= 0.85 &&
-              overlap(e.Venue || "", ex.Venue || "") >= 0.60) { idx = i; break; }
-        } else {
-          // Fallback rule (venue-less): Date equal AND times overlap AND (title OR slug sufficiently similar)
-          const timesOk = timesOverlap(e.Time, ex.Time, 5);
-          if (timesOk) {
-            const titleJac = jaccardSets(e._norm_title, ex._norm_title);  // very strict
-            const slugJac  = jaccardSets(e._slug_tokens, ex._slug_tokens);
-            if (titleJac >= 0.92 || slugJac >= 0.70) { idx = i; stats.fallback_merges++; break; }
-          }
-        }
-      }
-    }
+    const idx = keyToIdx.has(key) ? keyToIdx.get(key) : -1;
 
     if (idx === -1) {
-      idx = out.length;
       const copy = { ...e };
       if (!Array.isArray(copy._via)) copy._via = (copy.Source ? [copy.Source] : []);
       out.push(copy);
-    } else {
-      const beforeTime = out[idx].Time;
-      out[idx] = pickBetter(out[idx], e);
-      stats.merges++;
-      const beforeSize = parseTimes(beforeTime).size;
-      const afterSize  = parseTimes(out[idx].Time).size;
-      if (beforeSize && parseTimes(e.Time).size && afterSize > beforeSize) stats.time_merges++;
-
-      const prevVia = Array.isArray(out[idx]._via) ? new Set(out[idx]._via) : new Set();
-      const add = Array.isArray(e._via) ? e._via : (e.Source ? [e.Source] : []);
-      for (const v of add) prevVia.add(v);
-      out[idx]._via = Array.from(prevVia);
+      keyToIdx.set(key, out.length - 1);
+      continue;
     }
 
-    if (urlKey) keyToIdx.set(urlKey, idx);
-    if (tdvKey) keyToIdx.set(tdvKey, idx);
+    const beforeTime = out[idx].Time;
+    out[idx] = pickBetter(out[idx], e);
+    stats.merges++;
+
+    const beforeSize = parseTimes(beforeTime).size;
+    const afterSize  = parseTimes(out[idx].Time).size;
+    if (beforeSize && parseTimes(e.Time).size && afterSize > beforeSize) stats.time_merges++;
+
+    const prevVia = Array.isArray(out[idx]._via) ? new Set(out[idx]._via) : new Set();
+    const add = Array.isArray(e._via) ? e._via : (e.Source ? [e.Source] : []);
+    for (const v of add) prevVia.add(v);
+    out[idx]._via = Array.from(prevVia);
   }
+
+  // keep field for backwards-compatible telemetry
+  stats.fallback_merges = 0;
 
   return out;
 }
