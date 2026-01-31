@@ -8,25 +8,25 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1840,
-        656
+        832,
+        496
       ],
-      "id": "ff502883-d746-46e7-8557-2c666978af56",
+      "id": "fa9881e8-270d-4df5-8b29-6b31d3051acf",
       "name": "Code – build showtime rows"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "DELETE FROM public.s1_showtimes\nWHERE _end_date < '{{$json[\"date\"]}}'::date\n   OR date > '{{$json[\"date\"]}}'::date + INTERVAL '6 days'\nRETURNING showtime_id,\n          event_id,\n          date,\n          _end_date,\n          venue,\n          payment;\n",
+        "query": "DELETE FROM public.s1_showtimes\nWHERE _end_date < '{{$json[\"date\"]}}'::date\n   OR date > ('{{$json[\"date\"]}}'::date + (('{{$json[\"days\"]}}'::int - 1) * interval '1 day'))\nRETURNING showtime_id,\n          event_id,\n          date,\n          _end_date,\n          venue,\n          payment;\n",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1008,
-        160
+        0,
+        0
       ],
-      "id": "4986134c-7fdb-4e51-a65e-b510018aa7a0",
+      "id": "0b4fba9f-a3ec-4120-9d71-77e1b1aefa03",
       "name": "DB – Prune showtimes",
       "credentials": {
         "postgres": {
@@ -82,10 +82,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2096,
-        384
+        1088,
+        224
       ],
-      "id": "008c93c1-4417-494c-8523-77184de1b1bb",
+      "id": "65d298a5-ff7f-43db-a4f5-b436e79c892a",
       "name": "Events payload"
     },
     {
@@ -172,10 +172,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2288,
-        384
+        1280,
+        224
       ],
-      "id": "6860fc33-98bf-491f-981e-0939b4f4b75b",
+      "id": "a120d75f-c51b-4f92-9335-92dbbdcaf020",
       "name": "DB – Upsert events",
       "notesInFlow": false,
       "credentials": {
@@ -297,10 +297,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2096,
-        656
+        1088,
+        496
       ],
-      "id": "ba4e21d9-342b-43bf-b57d-15bc020aef09",
+      "id": "41aca32b-e4a4-425d-8f10-4f7d7a40dca9",
       "name": "DB - insert showtimes",
       "credentials": {
         "postgres": {
@@ -311,15 +311,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// Summary – metrics for WF-INGEST\n// Mode: Run Once for All Items\n\nfunction safeNum(v, fallback = 0) {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : fallback;\n}\n\nfunction getFirstJson(nodeName) {\n  try {\n    const it = $items(nodeName);\n    return it?.[0]?.json ?? null;\n  } catch {\n    return null;\n  }\n}\n\n// 1) Config\nconst cfg = getFirstJson('Config – Window & Hub params1') || {};\nconst config = {\n  date: cfg.date ?? null,\n  period: cfg.period ?? null,\n  days: cfg.days ?? null,\n  pages: cfg.pages ?? null,\n  limit: cfg.limit ?? null,\n  include_in_progress: cfg.include_in_progress ?? null,\n};\n\n// 2) Hub telemetry\nconst hubJson = getFirstJson('HTTP – Fetch Hub events1') || {};\nconst hub = {\n  received: safeNum(hubJson.received, null),\n  deduped: safeNum(hubJson.deduped, null),\n  count: safeNum(hubJson.count, null),\n  events_array_length: Array.isArray(hubJson.events) ? hubJson.events.length : null,\n  per_source: Array.isArray(hubJson.per_source) ? hubJson.per_source : null,\n  dedupe_stats: hubJson.dedupe_stats ?? null,\n};\n\n// 3) Events after mapping / event_id\nconst eventItems = $items('Code – compute event_id1') || [];\nconst eventIdToSource = new Map();\nconst eventIdSet = new Set();\nconst eventsPerSource = {};\n\nfor (const it of eventItems) {\n  const j = it.json || {};\n  const eventId = j.event_id;\n  const src = (j.source || 'unknown').trim();\n\n  if (eventId) {\n    eventIdSet.add(eventId);\n    eventIdToSource.set(eventId, src);\n  }\n  eventsPerSource[src] = (eventsPerSource[src] || 0) + 1;\n}\n\n// 4) Showtime rows (planned inserts)\nconst showtimeRows = $items('Code – build showtime rows') || [];\nlet showtimesTimed = 0;\nlet showtimesNoTime = 0;\nconst showtimesPerSource = {};\nconst showtimeKeySet = new Set();\n\nfor (const it of showtimeRows) {\n  const j = it.json || {};\n  const eventId = j.event_id || null;\n  const src = eventIdToSource.get(eventId) || 'unknown';\n\n  const t = j.time ?? null;\n  if (t === null || t === '') showtimesNoTime++;\n  else showtimesTimed++;\n\n  showtimesPerSource[src] = (showtimesPerSource[src] || 0) + 1;\n\n  // uniqueness check (in-workflow diagnostic)\n  const k = [\n    eventId ?? '∅',\n    j.date ?? '∅',\n    (t === null || t === '') ? '∅' : String(t),\n    (j.venue === null || j.venue === '') ? '∅' : String(j.venue),\n  ].join('|');\n  showtimeKeySet.add(k);\n}\n\n// 5) Prune count (if your prune node returns rows like {to_prune: N})\nlet toPrune = null;\ntry {\n  const pruneItems = $items('DB – Prune showtimes') || [];\n  toPrune = pruneItems.reduce((acc, it) => acc + safeNum(it.json?.to_prune, 0), 0);\n} catch {\n  // ignore\n}\n\nreturn [{\n  json: {\n    ran_at: new Date().toISOString(),\n    config,\n    hub,\n    pipeline: {\n      events_total: eventItems.length,\n      events_distinct: eventIdSet.size,\n      events_per_source: eventsPerSource,\n      showtimes_total: showtimeRows.length,\n      showtimes_distinct_in_run: showtimeKeySet.size,\n      showtimes_timed: showtimesTimed,\n      showtimes_no_time: showtimesNoTime,\n      showtimes_per_source: showtimesPerSource,\n    },\n    db: {\n      showtimes_to_prune: toPrune,\n    },\n  }\n}];\n"
+        "jsCode": "// Summary – metrics for WF-INGEST\n// Mode: Run Once for All Items\n\nfunction safeNum(v, fallback = 0) {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : fallback;\n}\n\nfunction getFirstJson(nodeName) {\n  try {\n    const it = $items(nodeName);\n    return it?.[0]?.json ?? null;\n  } catch {\n    return null;\n  }\n}\n\nfunction getAllJson(nodeName) {\n  try {\n    return ($items(nodeName) || []).map(i => i.json || {});\n  } catch {\n    return [];\n  }\n}\n\n// --- date helpers (YYYY-MM-DD) ---\nfunction parseISODate(iso) {\n  // iso: 'YYYY-MM-DD'\n  if (!iso || typeof iso !== 'string') return null;\n  const m = iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  if (!m) return null;\n  const y = Number(m[1]);\n  const mo = Number(m[2]) - 1;\n  const d = Number(m[3]);\n  const dt = new Date(Date.UTC(y, mo, d));\n  return Number.isNaN(dt.getTime()) ? null : dt;\n}\n\nfunction formatISODateUTC(dt) {\n  const y = dt.getUTCFullYear();\n  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');\n  const d = String(dt.getUTCDate()).padStart(2, '0');\n  return `${y}-${m}-${d}`;\n}\n\nfunction addDaysISO(iso, daysToAdd) {\n  const dt = parseISODate(iso);\n  if (!dt) return null;\n  dt.setUTCDate(dt.getUTCDate() + Number(daysToAdd || 0));\n  return formatISODateUTC(dt);\n}\n\n// Lexicographic compare works for YYYY-MM-DD\nfunction minISO(a, b) { return (!a ? b : (!b ? a : (a < b ? a : b))); }\nfunction maxISO(a, b) { return (!a ? b : (!b ? a : (a > b ? a : b))); }\n\nfunction normalizeSource(src) {\n  const s = (src || '').toLowerCase().trim();\n  // raw Hub values may be \"zoom.lublin.pl\" / \"lublin.eu\"\n  if (s.includes('zoom')) return 'zoom';\n  if (s.includes('lublin.eu') || s.includes('official')) return 'official';\n  // already normalized?\n  if (s === 'zoom' || s === 'official') return s;\n  return s || 'unknown';\n}\n\nfunction getEventStartEndFromHub(ev) {\n  const start = ev?.Date || ev?.date || null;\n  const end = ev?._EndDate || ev?._end_date || ev?.end_date || start;\n  return { start, end };\n}\n\n// -----------------------------\n// 1) Config\n// -----------------------------\nconst cfg = getFirstJson('Config – Window & Hub params1') || {};\nconst daysInt = Number(cfg.days);\nconst windowStart = cfg.date ?? null;\nconst windowEnd = (windowStart && Number.isFinite(daysInt))\n  ? addDaysISO(windowStart, Math.max(0, daysInt - 1))\n  : windowStart;\n\nconst config = {\n  date: windowStart,\n  window_end: windowEnd,\n  period: cfg.period ?? null,\n  days: cfg.days ?? null,\n  pages: cfg.pages ?? null,\n  limit: cfg.limit ?? null,\n  include_in_progress: cfg.include_in_progress ?? null,\n};\n\n// -----------------------------\n// 2) Hub telemetry (raw response)\n// -----------------------------\nconst hubJson = getFirstJson('HTTP – Fetch Hub events1') || {};\nconst hub = {\n  received: safeNum(hubJson.received, null),\n  deduped: safeNum(hubJson.deduped, null),\n  count: safeNum(hubJson.count, null),\n  events_array_length: Array.isArray(hubJson.events) ? hubJson.events.length : null,\n  per_source: Array.isArray(hubJson.per_source) ? hubJson.per_source : null,\n  dedupe_stats: hubJson.dedupe_stats ?? null,\n  version: hubJson.version ?? null,\n};\n\n// -----------------------------\n// 3) Events after mapping / event_id (your pipeline view)\n// -----------------------------\nconst eventItems = $items('Code – compute event_id1') || [];\nconst eventIdToSource = new Map();\nconst eventIdSet = new Set();\nconst eventsPerSource = {};\n\nfor (const it of eventItems) {\n  const j = it.json || {};\n  const eventId = j.event_id;\n  const src = normalizeSource(j.source);\n\n  if (eventId) {\n    eventIdSet.add(eventId);\n    eventIdToSource.set(eventId, src);\n  }\n  eventsPerSource[src] = (eventsPerSource[src] || 0) + 1;\n}\n\n// -----------------------------\n// 4) Showtime rows (planned inserts)\n// -----------------------------\nconst showtimeRows = $items('Code – build showtime rows') || [];\nlet showtimesTimed = 0;\nlet showtimesNoTime = 0;\nconst showtimesPerSource = {};\nconst showtimeKeySet = new Set();\n\nfor (const it of showtimeRows) {\n  const j = it.json || {};\n  const eventId = j.event_id || null;\n  const src = eventIdToSource.get(eventId) || normalizeSource(j.source) || 'unknown';\n\n  const t = j.time ?? null;\n  if (t === null || t === '') showtimesNoTime++;\n  else showtimesTimed++;\n\n  showtimesPerSource[src] = (showtimesPerSource[src] || 0) + 1;\n\n  // uniqueness check (in-workflow diagnostic)\n  const k = [\n    eventId ?? '∅',\n    j.date ?? '∅',\n    (t === null || t === '') ? '∅' : String(t),\n    (j.venue === null || j.venue === '') ? '∅' : String(j.venue),\n  ].join('|');\n  showtimeKeySet.add(k);\n}\n\n// -----------------------------\n// 5) Prune count (if your prune node returns rows like {to_prune: N})\n// -----------------------------\nlet toPrune = null;\ntry {\n  const pruneItems = $items('DB – Prune showtimes') || [];\n  toPrune = pruneItems.reduce((acc, it) => acc + safeNum(it.json?.to_prune, 0), 0);\n} catch {\n  // ignore\n}\n\n// -----------------------------\n// 6) SANITY: overlap counts (Hub vs DB) for the window\n// -----------------------------\nconst sanity = {\n  window_start: windowStart,\n  window_end: windowEnd,\n  hub_overlap_events_total: null,\n  hub_overlap_events_per_source: null,\n  db_overlap_events_per_source: null,\n  any_mismatch: null,\n  diff_per_source: null,\n  hub_outside_window_but_overlaps_sample: null,\n  notes: [],\n};\n\nfunction overlapISO(start, end, wStart, wEnd) {\n  if (!start || !wStart || !wEnd) return false;\n  const e = end || start;\n  return (start <= wEnd) && (e >= wStart);\n}\n\nif (Array.isArray(hubJson.events) && windowStart && windowEnd) {\n  const hubOverlapPerSource = {};\n  let hubOverlapTotal = 0;\n  const outsideButOverlaps = [];\n\n  for (const ev of hubJson.events) {\n    const src = normalizeSource(ev?.Source || ev?.source);\n    const { start, end } = getEventStartEndFromHub(ev);\n\n    const isOverlap = overlapISO(start, end, windowStart, windowEnd);\n    if (!isOverlap) continue;\n\n    hubOverlapTotal++;\n    hubOverlapPerSource[src] = (hubOverlapPerSource[src] || 0) + 1;\n\n    // explain “Hub count bigger than date==... checks”\n    const startOutside = (start < windowStart) || (start > windowEnd);\n    if (startOutside) {\n      outsideButOverlaps.push({\n        source: src,\n        Title: ev?.Title ?? null,\n        Date: start ?? null,\n        _EndDate: end ?? null,\n        Link: ev?.Link ?? null,\n      });\n    }\n  }\n\n  sanity.hub_overlap_events_total = hubOverlapTotal;\n  sanity.hub_overlap_events_per_source = hubOverlapPerSource;\n  sanity.hub_outside_window_but_overlaps_sample = outsideButOverlaps.slice(0, 12);\n  if (outsideButOverlaps.length > 0) {\n    sanity.notes.push(\n      `Hub returned ${outsideButOverlaps.length} overlapping events whose start Date is outside the window (likely long-running / in-progress).`\n    );\n  }\n} else {\n  sanity.notes.push('Hub events array missing OR window_start/window_end missing; cannot compute hub overlap sanity.');\n}\n\n// DB overlap counts (from node you should have added)\nconst dbOverlapRows = getAllJson('DB – Sanity overlap counts (s1)'); // safe if missing\nif (dbOverlapRows.length > 0) {\n  const dbPerSource = {};\n  for (const r of dbOverlapRows) {\n    const src = normalizeSource(r.source);\n    dbPerSource[src] = {\n      events_overlap: safeNum(r.events_overlap, 0),\n      showtimes_overlap: safeNum(r.showtimes_overlap, 0),\n      events_free: safeNum(r.events_free, 0),\n      showtimes_free: safeNum(r.showtimes_free, 0),\n    };\n  }\n  sanity.db_overlap_events_per_source = dbPerSource;\n} else {\n  sanity.notes.push('DB sanity node not present or returned no rows: \"DB – Sanity overlap counts (s1)\".');\n}\n\n// Compare hub vs db if both present\nif (sanity.hub_overlap_events_per_source && sanity.db_overlap_events_per_source) {\n  const diff = {};\n  let any = false;\n\n  const keys = new Set([\n    ...Object.keys(sanity.hub_overlap_events_per_source),\n    ...Object.keys(sanity.db_overlap_events_per_source),\n  ]);\n\n  for (const k of keys) {\n    const hubCnt = safeNum(sanity.hub_overlap_events_per_source[k], 0);\n    const dbCnt = safeNum(sanity.db_overlap_events_per_source[k]?.events_overlap, 0);\n    const d = hubCnt - dbCnt;\n    diff[k] = { hub_overlap_events: hubCnt, db_overlap_events: dbCnt, delta: d };\n    if (d !== 0) any = true;\n  }\n\n  sanity.any_mismatch = any;\n  sanity.diff_per_source = diff;\n\n  if (any) {\n    sanity.notes.push('Mismatch detected: hub overlap events != db overlap events (per source). Investigate dropped items or prune logic.');\n  } else {\n    sanity.notes.push('Sanity OK: hub overlap events match db overlap events (per source).');\n  }\n}\n\n// -----------------------------\n// Return summary\n// -----------------------------\nreturn [{\n  json: {\n    ran_at: new Date().toISOString(),\n    config,\n    hub,\n    pipeline: {\n      events_total: eventItems.length,\n      events_distinct: eventIdSet.size,\n      events_per_source: eventsPerSource,\n      showtimes_total: showtimeRows.length,\n      showtimes_distinct_in_run: showtimeKeySet.size,\n      showtimes_timed: showtimesTimed,\n      showtimes_no_time: showtimesNoTime,\n      showtimes_per_source: showtimesPerSource,\n    },\n    db: {\n      showtimes_to_prune: toPrune,\n    },\n    sanity,\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2944,
-        752
+        1936,
+        592
       ],
-      "id": "5b752aa9-d184-4dc0-a014-3a1cd14bebfd",
+      "id": "c16d8203-e11b-4a14-bb65-3558077b1aa5",
       "name": "Summary – metrics"
     },
     {
@@ -381,10 +381,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        800,
-        384
+        -208,
+        224
       ],
-      "id": "32662818-a110-42db-8552-57ed584dc573",
+      "id": "c8de0817-b61c-4360-8c68-abf251bb0b55",
       "name": "Config – Window & Hub params1"
     },
     {
@@ -395,15 +395,15 @@
           "parameters": [
             {
               "name": "date",
-              "value": "={{ $('Config – Window & Hub params1').item.json.date }}"
+              "value": "=2026-01-31"
             },
             {
               "name": "period",
-              "value": "={{ $('Config – Window & Hub params1').item.json.period }}"
+              "value": "=day"
             },
             {
               "name": "days",
-              "value": "={{ $('Config – Window & Hub params1').item.json.days }}"
+              "value": "=1"
             },
             {
               "name": "sheet",
@@ -423,7 +423,7 @@
             },
             {
               "name": "pages",
-              "value": "={{ $('Config – Window & Hub params1').item.json.pages }}"
+              "value": "=3"
             }
           ]
         },
@@ -432,10 +432,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1008,
-        384
+        0,
+        224
       ],
-      "id": "eea2d5cf-25b7-433f-8f93-c3831a2573ce",
+      "id": "36544d53-b8ce-4d7f-a233-2ba5d7da6d60",
       "name": "HTTP – Fetch Hub events1"
     },
     {
@@ -509,10 +509,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1424,
-        384
+        416,
+        224
       ],
-      "id": "0331ae24-055a-4da3-a85e-88ba9f40fd98",
+      "id": "fe4b70a7-fc94-4677-ae9c-32a5c72deec2",
       "name": "Map event fields1"
     },
     {
@@ -523,10 +523,10 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        1216,
-        384
+        208,
+        224
       ],
-      "id": "fd2e53f9-906d-4cbb-99f0-4c528cb10243",
+      "id": "7022f87c-3438-4de8-afe8-7025e2a9ac6f",
       "name": "Split – events array1"
     },
     {
@@ -606,10 +606,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1648,
-        384
+        640,
+        224
       ],
-      "id": "040c4f9f-e9cf-4fd3-9972-02c35d31b3fd",
+      "id": "5d8136ce-2b8a-4fdb-8e47-726041420041",
       "name": "Source mapping1"
     },
     {
@@ -619,10 +619,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1840,
-        384
+        832,
+        224
       ],
-      "id": "ffaba23d-8b7f-4381-9b23-7b117ee73b59",
+      "id": "1ddecc3f-936c-42d0-b2f1-f8d1ed32dd7f",
       "name": "Code – compute event_id1"
     },
     {
@@ -639,10 +639,10 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        576,
-        384
+        -432,
+        224
       ],
-      "id": "079326c1-8fc7-416d-a75c-0e786c75af67",
+      "id": "3a757c14-c9b7-426b-9b85-5faa4035c4ac",
       "name": "Schedule Trigger"
     },
     {
@@ -654,10 +654,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2304,
-        656
+        1296,
+        496
       ],
-      "id": "62d66d99-ffe0-41f2-adc7-4593f5fffffb",
+      "id": "15570ec8-0bf9-40f5-8054-a5309667fc7f",
       "name": "Execute a SQL query",
       "executeOnce": true,
       "credentials": {
@@ -814,10 +814,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        3120,
-        752
+        2112,
+        592
       ],
-      "id": "8dd0381f-6ab0-4306-94a5-67b539416ca5",
+      "id": "a6f0a16c-42fb-44ba-8fae-a50bffacb19b",
       "name": "Insert ingest_log (ok)",
       "credentials": {
         "postgres": {
@@ -835,10 +835,10 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        2896,
-        496
+        1888,
+        336
       ],
-      "id": "34ce5903-02f9-4103-b1ba-79bf911047d4",
+      "id": "81687325-8b4c-48d4-8445-9148497d1a8e",
       "name": "DB – S2 apply canonicalization",
       "credentials": {
         "postgres": {
@@ -854,10 +854,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2496,
-        384
+        1488,
+        224
       ],
-      "id": "ef1c4e71-5746-42ec-937c-787677850a31",
+      "id": "fca5e301-6bcf-47a1-9699-c10ddd5c490a",
       "name": "Barrier – events done"
     },
     {
@@ -867,10 +867,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2512,
-        656
+        1504,
+        496
       ],
-      "id": "ce4cc94b-22a9-4322-a9f1-fdf3eb13f0ad",
+      "id": "67d22793-0f32-471d-813b-310874ccbfa2",
       "name": "Barrier – showtimes done"
     },
     {
@@ -882,20 +882,37 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        2704,
-        496
+        1696,
+        336
       ],
-      "id": "f7dfd474-e17b-4295-b293-b624496fb700",
+      "id": "58f5a97d-a271-43b4-bad9-a104c56e7adf",
       "name": "Join – stage1 writes done"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH w AS (\n  SELECT\n    '{{$node[\"Config – Window & Hub params1\"].json[\"date\"]}}'::date AS window_start,\n    ('{{$node[\"Config – Window & Hub params1\"].json[\"date\"]}}'::date\n      + (('{{$node[\"Config – Window & Hub params1\"].json[\"days\"]}}'::int - 1) * interval '1 day')\n    )::date AS window_end\n)\nSELECT\n  e.source,\n  count(distinct s.event_id) AS events_overlap,\n  count(*) AS showtimes_overlap,\n  count(*) FILTER (WHERE s.payment = 'free') AS showtimes_free,\n  count(distinct s.event_id) FILTER (WHERE s.payment = 'free') AS events_free\nFROM public.s1_showtimes s\nJOIN public.s1_events e USING (event_id)\nCROSS JOIN w\nWHERE s.date <= w.window_end\n  AND COALESCE(s._end_date, s.date) >= w.window_start\nGROUP BY 1\nORDER BY 1;",
+        "options": {}
+      },
+      "id": "9d2a94d0-ebf0-4ae8-be5a-1294426a04dd",
+      "name": "DB – Sanity overlap counts (s1)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2096,
+        336
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "yWlCCvDG4OzxvCkA",
+          "name": "supabase-lehv2"
+        }
+      },
+      "notes": "S2-07A hardening: counts showtimes/events overlapping ingest window; used for sanity vs Hub payload."
     }
   ],
   "pinData": {},
   "connections": {
-    "DB – Prune showtimes": {
-      "main": [
-        []
-      ]
-    },
     "Events payload": {
       "main": [
         [
@@ -1064,7 +1081,7 @@
       "main": [
         [
           {
-            "node": "Summary – metrics",
+            "node": "DB – Sanity overlap counts (s1)",
             "type": "main",
             "index": 0
           }
@@ -1092,20 +1109,28 @@
           }
         ]
       ]
+    },
+    "DB – Sanity overlap counts (s1)": {
+      "main": [
+        [
+          {
+            "node": "Summary – metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false,
-    "errorWorkflow": "jrZWQbZ7X1t8nTVS"
+    "availableInMCP": false
   },
-  "versionId": "96451755-7ecc-47be-b0a6-aa97f972010b",
+  "versionId": "1bec7d76-ce43-4031-9f70-191d23fb8053",
   "meta": {
-    "templateCredsSetupCompleted": true,
     "instanceId": "e9831d5794dbfbbfe37e8a55340f672d15c48d6c06ed0066f5da51930bb91cf7"
   },
-  "id": "KmBNUifuH95Cns7N",
+  "id": "MNMvI7yJg_NjkS48kPhII",
   "tags": []
 }

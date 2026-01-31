@@ -49,6 +49,9 @@ Notes:
 - In Stage 2, `date/days` define the **canonicalization window**.
 - Staging tables may contain rows with spans outside the window; canonical tables are pruned to the window.
 
+Note on counts: Hub `count` reflects the number of event objects returned (after Hub-side per-source URL dedupe).
+WF-INGEST may insert a different number of `s1_showtimes` rows because one Hub event can expand to multiple showtimes when `Time` contains multiple values.
+
 ### S2-07A note: Hub does not dedupe across sources
 For S2-07A and Stage 2 generally, the Hub layer should **not** dedupe across sources.
 - Each source (zoom.lublin.pl, lublin.eu, …) emits its own listing rows.

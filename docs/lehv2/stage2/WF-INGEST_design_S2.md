@@ -221,3 +221,29 @@ Same pattern as Zoom canary:
   - `alarm = (ok_pages==0) OR (fail_pages>0) OR (unapplied>0) OR (skipped_budget>0)`
 - IF → on TRUE send Telegram message
 
+## WF-INGEST run summary telemetry (S2-07A hardening)
+
+WF-INGEST includes a Code node **“Summary – metrics for WF-INGEST”** that emits one JSON object with:
+- the **config** used for the run (date/period/days/pages/limit/include_in_progress)
+- the **Hub telemetry** from the Hub response (received/deduped/count/events array length/per_source/dedupe_stats)
+- the **pipeline telemetry** after mapping (events distinct, showtimes totals, per-source counts)
+- optional **DB prune** count if the prune node returns `to_prune`
+
+### Why this exists
+Hub `count` is the number of Hub “event objects” returned.
+WF-INGEST may generate **more showtime rows than Hub events** when:
+- a Hub event has multiple times (split into multiple showtimes)
+and may generate **fewer showtime rows** when:
+- a Hub event has missing/invalid date/time and is dropped during mapping/normalization (this should be rare; investigate)
+
+### What to watch (manual or alarms)
+Treat these as investigation triggers (not strict invariants):
+- `hub.events_array_length != hub.count`  → Hub payload shape issue
+- `pipeline.events_distinct << hub.count` → mapping is dropping events or event_id collisions
+- sudden drop to 0 in per-source `showtimes_per_source[source]` while Hub per_source still reports `got>0`
+- `showtimes_distinct_in_run < showtimes_total` (duplicates created inside one run)
+
+### Investigation playbook (fast)
+1) Compare `hub.per_source` vs `pipeline.events_per_source` vs `pipeline.showtimes_per_source`
+2) If one source drops: inspect mapping rules for that source (date parsing, URL normalization, time split)
+3) Re-run the same Hub URL in a browser and verify the event objects contain Date/Link/Source as expected
