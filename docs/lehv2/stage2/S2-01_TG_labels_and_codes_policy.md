@@ -143,10 +143,13 @@ Recommended:
 
 ### D) Period / pay / navigation codes
 
+**MVP note (pay UI):** although `pay` codes include `paid|unknown`, the current Telegram UX uses a **toggle** and only emits `pay=all` and `pay=free`. Other values are reserved for future UI.
+
+
 These are **payload contract** codes, not DB tags:
 - `period=today|tomorrow|weekend|week`
 - `pay=all|free|paid|unknown`
-- `nav=more|back|reset` (or your current nav scheme)
+- `nav=more|back` (or your current nav scheme)
 
 Safe:
 - changing labels only

@@ -2,6 +2,8 @@
 
 Single source of truth for **inline keyboard** `callback_data` payloads used by the Telegram bot MVP (Stage 2).
 
+This contract describes **codes** (stable) and example **labels** (Polish, changeable).
+
 ---
 
 ## Format
@@ -15,7 +17,7 @@ Payload scheme:
 - `v2|set|<key>=<value>`  (set a value)
 - `v2|menu|<name>`        (open a menu screen)
 - `v2|run|search`         (execute search)
-- `v2|nav|<flag>`         (navigation / simple commands)
+- `v2|nav|<flag>`         (navigation)
 
 ---
 
@@ -24,6 +26,7 @@ Payload scheme:
 - `period`: `today | tomorrow | weekend | week`
 - `theme`: `all | teatr | film | koncert | spotkanie | warsztat | wystawa | wycieczka | sport | inne`
 - `pay`: `all | free | paid | unknown`
+  - **MVP UI uses only** `all` and `free` (toggle). Other values are reserved.
 - `lr`: `0 | 1`
   - `0` (default): exclude long‑running events (`range_days >= 21`)
   - `1`: include long‑running events
@@ -32,33 +35,25 @@ Payload scheme:
 
 ## Navigation flags
 
-| Button label (PL) | callback_data |
+| Example button label (PL) | callback_data |
 |---|---|
 | Pokaż więcej *(only if has_more)* | `v2|nav|more` |
-| Wstecz | `v2|nav|back` |
-| Zacznij od nowa | `v2|nav|reset` |
+| Wstecz / Zmień filtry | `v2|nav|back` |
 
 ---
 
-## Main menu buttons
+## Menus
 
-| Button label (PL) | callback_data |
+| Menu | callback_data |
 |---|---|
-| Wybór okresu | `v2|menu|period` |
-| Wybór kategorii | `v2|menu|theme` |
-| Wybór płatności | `v2|menu|pay` |
-| Pokaż wyniki | `v2|run|search` |
-| Zacznij od nowa | `v2|nav|reset` |
+| Okres | `v2|menu|period` |
+| Kategoria | `v2|menu|theme` |
 
-Note: the `/start` screen may show a subset of main-menu buttons, but WF-BOT-TG must only use the payloads defined in this contract.
+---
 
+## /start screen
 
-### Long‑running toggle (shown as one button depending on current state)
-
-| Button label (PL) | callback_data |
-|---|---|
-| Pokaż długoterminowe *(when lr=0)* | `v2|set|lr=1` |
-| Ukryj długoterminowe *(when lr=1)* | `v2|set|lr=0` |
+`/start` is a **message** (not callback). The bot responds with a welcome text and the **period selection keyboard** (same buttons as the Period menu, without “Wstecz”).
 
 ---
 
@@ -92,33 +87,44 @@ Note: the `/start` screen may show a subset of main-menu buttons, but WF-BOT-TG 
 
 ---
 
-## Pay menu
+## Step2 (filters + “Pokaż wyniki”)
 
-| Button label (PL) | callback_data |
+After period selection, the bot shows a “settings” screen with:
+- optional **category** menu entry (may be hidden after category selection)
+- **pay toggle**:
+  - `pay=all` → button sends `v2|set|pay=free`
+  - `pay=free` → button sends `v2|set|pay=all`
+- **long‑running toggle**:
+  - `lr=0` → button sends `v2|set|lr=1`
+  - `lr=1` → button sends `v2|set|lr=0`
+- run search: `v2|run|search`
+
+Example buttons:
+
+| Example button label (PL) | callback_data |
 |---|---|
-| Wszystkie | `v2|set|pay=all` |
-| Bezpłatne | `v2|set|pay=free` |
-| Płatne | `v2|set|pay=paid` |
-| Nieznane | `v2|set|pay=unknown` |
-| Wstecz | `v2|nav|back` |
+| 🎭 Wybierz kategorię *(optional)* | `v2|menu|theme` |
+| 💳 Pokaż tylko bezpłatne | `v2|set|pay=free` |
+| 💳 Pokaż płatne i bezpłatne | `v2|set|pay=all` |
+| ⏳ Pokaż długoterminowe | `v2|set|lr=1` |
+| ⏳ Ukryj długoterminowe | `v2|set|lr=0` |
+| 🔎 Pokaż wyniki | `v2|run|search` |
 
 ---
 
 ## Results screen keyboard
 
-| Button label (PL) | callback_data |
+When results are shown:
+
+| Example button label (PL) | callback_data |
 |---|---|
 | Pokaż więcej *(only if has_more)* | `v2|nav|more` |
-| Wstecz | `v2|nav|back` |
-| Zacznij od nowa | `v2|nav|reset` |
+| Zmień filtry | `v2|nav|back` |
 
----
+### End-of-list and zero-results
+When there are no more results (or no results at all), the bot may also offer:
 
-## Zero results screen (Brak wyników)
-
-| Button label (PL) | callback_data |
+| Example button label (PL) | callback_data |
 |---|---|
-| Wybór okresu | `v2|menu|period` |
-| Wybór kategorii | `v2|menu|theme` |
-| Wybór płatności | `v2|menu|pay` |
-| Zacznij od nowa | `v2|nav|reset` |
+| 🎭 Zmień kategorię | `v2|menu|theme` |
+| Zmień filtry | `v2|nav|back` |

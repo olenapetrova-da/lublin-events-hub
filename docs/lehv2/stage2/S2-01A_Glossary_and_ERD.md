@@ -179,10 +179,12 @@ Key columns:
 
 - `user_state_id` (PK, bigint)
 - `chat_id` (text, NOT NULL, UNIQUE)
-- `step` (text, NOT NULL) — `main|period|theme|pay`
+- `step` (text, NOT NULL) — `main|main2|period|theme|pay`
+- `main2` is a “main menu variant after category selection”: once the user selects any category (including `all`), WF-BOT-TG can render a Step2 screen without the “Wybierz kategorię” button.
+- `pay` step is reserved for a future pay menu; current MVP uses a pay toggle on Step2 screens.
 - `period` (text, nullable) — `today|tomorrow|weekend|week`
 - `theme` (text, NOT NULL) — contract code, default `all`
-- `pay` (text, NOT NULL) — contract code, default `all`
+- `pay` (text, NOT NULL) — contract code, default `all` (MVP UI uses only `all` and `free`; other DB-allowed values are reserved)
 - `lr` (smallint, NOT NULL) — `0|1`, default `0`
 - `"offset"` (int, NOT NULL) — pagination offset, default `0`
 - `anchor_date` (date, nullable) — reference date for relative periods

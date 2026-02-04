@@ -162,7 +162,7 @@ Written by WF-BOT-TG; read by bot logic and S2-03 queries.
 
 - `PRIMARY KEY (user_state_id)`
 - `UNIQUE (chat_id)`
-- `CHECK (step IN ('main','period','theme','pay'))`
+- `CHECK (step IN ('main','main2','period','theme','pay'))`
 - `CHECK (period IS NULL OR period IN ('today','tomorrow','weekend','week'))`
 - `CHECK (theme IN ('all','teatr','film','koncert','spotkanie','warsztat','wystawa','wycieczka','sport','inne'))`
 - `CHECK (pay IN ('all','free','paid','unknown'))`
@@ -177,6 +177,17 @@ Written by WF-BOT-TG; read by bot logic and S2-03 queries.
 - `anchor_date` freezes the reference date for relative periods to prevent result drift after midnight.
 - `offset` is a reserved SQL keyword; in SQL always reference it as `"offset"`.
 
+**Step values**
+- `main` — initial / default step.
+- `period` — period menu open.
+- `theme` — category menu open.
+- `pay` — reserved for a future “pay menu” (not used in the current MVP UX).
+- `main2` — “main menu variant after category selection”: hide the “Wybierz kategorię” button once the user has made a category choice (including `theme=all`).
+
+**Pay values (MVP UX)**
+- DB allows `pay IN (all, free, paid, unknown)` for future expansion.
+- WF-BOT-TG MVP UI uses **toggle only** and supports **only**: `all` and `free` (any other value is treated as `all` in UI).
+
 ### Design notes
 
 - **Stable relative windows:** S2-03 queries MUST compute `today/tomorrow/weekend/week` relative to `anchor_date` (Warsaw date), not `now()`.
@@ -184,7 +195,7 @@ Written by WF-BOT-TG; read by bot logic and S2-03 queries.
     - any change to filters (`period`, `theme`, `pay`, `lr`) resets `"offset"` to 0
     - any update refreshes `updated_at`
     - when `period` changes: set `anchor_date` to Warsaw “today”; if `period` is cleared → clear `anchor_date`
-- **Message editing deferred:** we do not store Telegram `message_id` fields in MVP. If needed later, add optional columns like `last_bot_message_id` / `last_bot_message_at`.
+- **Keyboard clearing via message edit:** WF-BOT-TG may clear the clicked inline keyboard by calling Telegram “Edit Message Text” with the **same text** and `Reply Markup=None`. No `message_id` is stored in DB; the callback payload carries it.
 
 ---
 

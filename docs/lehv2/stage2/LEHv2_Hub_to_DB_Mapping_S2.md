@@ -146,6 +146,9 @@ Recommended columns (conceptual):
   - keep nullable; canonicalization later decides “best” values.
 
 ##### S2-07A payment normalization (free/unknown only)
+
+**Telegram MVP note:** WF-BOT-TG exposes payment as a **toggle** and only filters `pay=free` vs `pay=all`. Values `paid|unknown` are reserved for future enrichment/UI.
+
 In S2-07A, Hub emits payment as:
 - `"Payment for Entry": "No"`  → treat as **FREE**
 - empty / whitespace           → treat as **UNKNOWN**

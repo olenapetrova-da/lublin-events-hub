@@ -13,81 +13,95 @@ Users can:
 - start the bot (`/start`)
 - choose **Okres** (required): Dziś / Jutro / Weekend / Tydzień
 - optionally choose **Kategoria** (theme): Wszystkie, Teatr, Film, Koncert, Spotkanie, Warsztat, Wystawa, Wycieczka, Sport, Inne
-- optionally choose **Płatność**: Wszystkie / Bezpłatne / Płatne / Nieznane
+- optionally toggle **Płatność** (MVP: toggle only): *all events* ↔ *free only*
 - optionally toggle **Długoterminowe** (long‑running events): *excluded by default*
 - run search (“Pokaż wyniki”)
 - page results (“Pokaż więcej”)
-- go back to main menu (“Wstecz”)
-- restart flow (“Zacznij od nowa”)
+- open filters screen (“Zmień filtry” / “Wstecz”)
 
 Out of scope:
 - free-text search
 - personalization
-- remembering filters across long time (beyond the current chat session)
 - LLM enrichment
 
 ---
 
 ## State model
 
-Stored per chat/user (eventually in `user_state`):
+Stored per chat/user in `public.user_state`:
 
-- `step`: `main|period|theme|pay`
+- `step`: `main|main2|period|theme|pay`
+  - `main2` is used as a “Step2 variant after category selection” (hide “Wybierz kategorię”).
+  - `pay` step is reserved for a future pay menu; MVP uses a pay toggle.
 - `period` (required): `today|tomorrow|weekend|week`
 - `theme` (optional): `all|teatr|film|koncert|spotkanie|warsztat|wystawa|wycieczka|sport|inne`
-- `pay` (optional): `all|free|paid|unknown`
+- `pay` (optional): `all|free|paid|unknown` (MVP UI uses only `all` and `free`)
 - `lr` (optional): `0|1`
   - `0` (default): exclude long‑running events (`range_days >= 21`)
   - `1`: include long‑running events
-- `offset` (int): pagination offset, default `0`
+- `"offset"` (int): pagination offset, default `0`
+- `anchor_date` (date): frozen “today” in Europe/Warsaw when period is set
 
 Rules:
-- Changing any filter (`period`, `theme`, `pay`, `lr`) resets `offset` to `0`.
+- Changing any filter (`period`, `theme`, `pay`, `lr`) resets `"offset"` to `0`.
 
 ---
 
 ## Screens and keyboards
 
-### 1) Main menu (step=`main`)
+### 0) Welcome /start (period required)
 
-**Text content (example; exact wording can vary):**
-- shows selected filters (Okres, Kategoria, Płatność, Długoterminowe)
-- if `period` is missing: guidance “Najpierw wybierz okres”
-- if `period` is present: show “Pokaż wyniki”
-- The first screen after `/start` may be a simplified “welcome” variant; after any filter change or navigation, the main menu should still reflect the current filter state and conditional “Pokaż wyniki” rule.
+Bot responds to `/start` with:
+- short welcome text
+- **period selection keyboard** (no “Wstecz”)
 
+Buttons:
+- Dziś / Jutro
+- Weekend / Tydzień
 
-Buttons (order can vary):
-- Wybór okresu
-- Wybór kategorii
-- Wybór płatności
-- Długoterminowe (toggle):
-  - if `lr=0` show button “Pokaż długie”
-  - if `lr=1` show button “Ukryj długie”
-- Pokaż wyniki *(only if period is set)*
-- Zacznij od nowa
-
-### 2) Period menu (step=`period`)
+### 1) Period menu (step=`period`)
 Buttons:
 - Dziś
 - Jutro
 - Weekend
 - Tydzień
-- Wstecz
+- Wstecz *(returns to “filters/settings” screen)*
 
-### 3) Theme menu (step=`theme`)
+### 2) Category menu (step=`theme`)
 Buttons:
 - Wszystkie
 - Teatr / Film / Koncert / Spotkanie / Warsztat / Wystawa / Wycieczka / Sport / Inne
-- Wstecz
+- Wstecz *(returns to “filters/settings” screen)*
 
-### 4) Pay menu (step=`pay`)
-Buttons:
-- Wszystkie
-- Bezpłatne
-- Płatne
-- Nieznane
-- Wstecz
+### 3) Filters/settings screen (Step2)
+
+This is the main “filter builder” after period selection.
+
+Text:
+- shows current settings: Okres, Kategoria, Płatność, Długoterminowe
+- guides user to refine options or run search
+
+Keyboard always includes:
+- Pay toggle:
+  - if `pay=all` show “💳 Pokaż tylko bezpłatne” (`pay=free`)
+  - if `pay=free` show “💳 Pokaż płatne i bezpłatne” (`pay=all`)
+- Long‑running toggle:
+  - if `lr=0` show “⏳ Pokaż długoterminowe” (`lr=1`)
+  - if `lr=1` show “⏳ Ukryj długoterminowe” (`lr=0`)
+- “🔎 Pokaż wyniki”
+
+Category button is conditional:
+- before the user selects any category → show “🎭 Wybierz kategorię”
+- after the user selects a category (including “Wszystkie”) → the bot may hide this button on the Step2 screen (still accessible via “Zmień filtry” / end-of-list screens)
+
+### 4) Filters screen (“Zmień filtry”)
+From results, user can open a “filters” screen that offers:
+- “📅 Wybierz okres”
+- “🎭 Wybierz kategorię”
+- pay toggle
+- long‑running toggle
+
+This screen does **not** show “Pokaż wyniki” (user returns to Step2 to run search).
 
 ---
 
@@ -96,27 +110,24 @@ Buttons:
 ### A) Results (has at least 1 event)
 
 The bot prints a list of canonical events (one line per canonical event):
-- format: `YYYY-MM-DD — <title> — <times_text> — <venue_if_any>`
+- format (example): `YYYY-MM-DD — <title> — <times_text> — <venue_if_any>  <url>`
 - ordering: date asc, earliest_time asc (NULL last), title asc
 
 Keyboard:
 - Pokaż więcej *(only if there are more results)*
-- Wstecz
-- Zacznij od nowa
+- Zmień filtry
 
 ### B) End of list (no more results)
-Text: “To już wszystkie wyniki. Zmień filtry albo zacznij od nowa.”
+Text includes a short footer like: “To już wszystkie wyniki…”
 Keyboard:
-- Wstecz
-- Zacznij od nowa
+- 🎭 Zmień kategorię
+- Zmień filtry
 
 ### C) Zero results
-Text: “Brak wyników. Zmień filtry albo zacznij od nowa.”
+Text: “Brak wyników…”
 Keyboard:
-- Wybór okresu
-- Wybór kategorii
-- Wybór płatności
-- Zacznij od nowa
+- 🎭 Zmień kategorię
+- Zmień filtry
 
 ---
 
@@ -131,11 +142,13 @@ Keyboard:
 
 ## Acceptance checks (manual)
 
-1) `/start` resets state and shows main menu (Okres missing, guidance present, no “Pokaż wyniki”).
-2) Select Theme first → returns to main menu; Okres still missing; guidance remains.
-3) Set Okres=Tydzień → main menu shows filters + “Pokaż wyniki”.
-4) Toggle Długoterminowe twice → `lr` flips, offset resets to 0, label changes.
-5) Run search with only Okres set (Theme=all, Pay=all, lr=0).
-6) Pagination: “Pokaż więcej” increases offset by 10; results differ between pages.
-7) After paging, press Wstecz → returns to main menu, offset reset to 0, filters preserved.
-8) Zero results → shows the “brak wyników” screen with 4 buttons.
+1) `/start` shows period selection.
+2) Set Okres=Tydzień → Step2 shows settings + (category button if not chosen yet) + toggles + “Pokaż wyniki”.
+3) Select a category “Wszystkie” → Step2 may hide “Wybierz kategorię” (category is still reachable via “Zmień filtry”).
+4) Toggle pay twice → pay flips, `"offset"` resets to 0, label changes.
+5) Toggle long‑running twice → lr flips, `"offset"` resets to 0, label changes.
+6) Run search with only Okres set (Theme may be all, Pay=all, lr=0).
+7) Pagination: “Pokaż więcej” increases offset by 10; results differ between pages.
+8) Press “Zmień filtry” from results → filters screen appears (period/theme + toggles).
+9) End-of-list: last page shows “To już wszystkie…” with “Zmień kategorię” and “Zmień filtry”.
+10) Zero results → shows the “Brak wyników” screen with the two buttons.

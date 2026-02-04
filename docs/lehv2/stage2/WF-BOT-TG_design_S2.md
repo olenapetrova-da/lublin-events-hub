@@ -21,7 +21,7 @@ WF-BOT-TG must:
 Out of scope (MVP):
 
 - free-text search
-- message editing (we send new messages)
+- message editing beyond keyboard clearing (MVP clears the clicked inline keyboard by editing the same message text with `Reply Markup=None`)
 - personalization beyond current state per chat
 
 ---
@@ -51,9 +51,10 @@ Out of scope (MVP):
     
     WF-BOT-TG writes state to `public.user_state` and always uses the **row returned from the DB** after a write.
     
-4. **No message editing**
-    
-    WF-BOT-TG sends new messages only (no stored `message_id` in MVP).
+4. **Keyboard clearing (limited message edit)**
+
+    WF-BOT-TG may clear the clicked inline keyboard by calling Telegram **Edit Message Text** with the **same text** and `Reply Markup=None`.
+    It still does not store any `message_id` in DB; the callback payload provides it.
     
 
 ---
@@ -106,10 +107,10 @@ Precedence rules:
 
 Persist only:
 
-- `step`: `main|period|theme|pay`
+- `step`: `main|main2|period|theme|pay`
 - `period`: `today|tomorrow|weekend|week` (nullable until chosen)
 - `theme`: `all|teatr|film|koncert|spotkanie|warsztat|wystawa|wycieczka|sport|inne`
-- `pay`: `all|free|paid|unknown`
+- `pay`: `all|free|paid|unknown` (MVP UI uses only `all` and `free` as a toggle; other values reserved)
 - `lr`: `0|1`
 - `"offset"`: integer >= 0
 - `anchor_date`: date (nullable if `period` is null)
@@ -145,15 +146,16 @@ WF-BOT-TG uses `db/queries/s2_03_tg_event_search.sql` Query A.
 
 ### Outputs
 
-- `event_id`
-- `date`
-- `title_display`
-- `times_text`
-- `venue_best`
-- `primary_url`
-- `has_more` (boolean; repeated on each row)
+WF-BOT-TG uses a **wrapper** around Query A so the workflow can render “Brak wyników…” deterministically.
+The wrapper always returns **exactly 1 row** with:
+
+- `rows` (jsonb array): each item contains `event_id, date, title_display, times_text, venue_best, primary_url`
+- `row_count` (int)
+- `has_more` (boolean)
+- echo of state fields used for UI: `period, theme, pay, lr, offset_n`
 
 Behavior notes:
+
 
 - `has_more` is computed via overfetch (page_size + 1)
 - if query returns **0 rows**, WF-BOT-TG treats `has_more = false`
@@ -190,7 +192,7 @@ Conceptual pipeline (n8n node names can vary):
     - `v2|menu|<name>`
     - `v2|set|<key>=<value>`
     - `v2|run|search`
-    - `v2|nav|<flag>` where flag is `more|back|reset`
+    - `v2|nav|<flag>` where flag is `more|back`
 
 ### Invalid / stale inputs
 
@@ -218,6 +220,9 @@ WF-BOT-TG uses one logical “state write” operation:
 ### Who is allowed to set `"offset"`
 
 Only these actions set `"offset"` explicitly:
+
+- `v2|nav|more` increments offset by `page_size` (10) before querying the next page.
+  If the next page returns `row_count = 0`, WF-BOT-TG rolls back offset by `page_size` and only answers the callback (no message sent).
 
 - pagination: `v2|nav|more` → `"offset" = "offset" + 10`
 - navigation: `v2|nav|back` → `"offset" = 0`
